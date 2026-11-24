@@ -19,6 +19,7 @@ jobs:
     with:
       full: ${{ inputs.re-deploy }}
       images: barlito/ops-mcp
-      env-secrets: ADMIN_PROXY_SECRET ADMIN_WEB_SECRET GRAFANA_URL GRAFANA_TOKEN GH_DEPLOYMENTS_TOKEN AUTHELIA_SESSION_COOKIE
+      env-secrets: ADMIN_PROXY_SECRET ADMIN_WEB_SECRET
+      optional-env-secrets: GRAFANA_URL GRAFANA_TOKEN GH_DEPLOYMENTS_TOKEN AUTHELIA_SESSION_COOKIE
       timeout-minutes: 15
     secrets: inherit

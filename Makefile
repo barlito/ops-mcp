@@ -105,15 +105,14 @@ endef
 
 # Rolling stack deploy (never `stack rm`: a recreated service has nothing to roll back to).
 # Needs TAG + ADMIN_PROXY_SECRET + ADMIN_WEB_SECRET in the env (turned into Docker secrets); the image must be published.
-# GRAFANA_URL, GRAFANA_TOKEN, GH_DEPLOYMENTS_TOKEN and AUTHELIA_SESSION_COOKIE are optional: `unset` (GitHub secrets
-# cannot be empty) means not configured, i.e. empty URL/cookie (compose defaults apply) and a placeholder Docker secret.
+# GRAFANA_URL, GRAFANA_TOKEN, GH_DEPLOYMENTS_TOKEN and AUTHELIA_SESSION_COOKIE are optional: empty means not
+# configured (compose defaults apply; empty tokens get a placeholder Docker secret, since those cannot be empty).
 # --detach=false waits for convergence (or Swarm's own rollback).
 deploy.prod: export IMAGE_TAG := $(TAG)
 deploy.prod: ## Deploy the whole prod stack (TAG=<release tag>): backup, stack deploy, assert, smoke, prune
 	@test -n "$(TAG)" || { echo "TAG is required (TAG=<tag> make deploy.prod)" >&2; exit 1; }
 	$(MAKE) db.backup
 	@$(call mark_service,$(mark_file))
-	for v in GRAFANA_URL AUTHELIA_SESSION_COOKIE; do [ "$$(printenv $$v)" != unset ] || export $$v=; done; \
 	proxy_name=$$(printf %s "$$ADMIN_PROXY_SECRET" | scripts/ensure-secret.sh ops_admin_proxy_secret); \
 	web_name=$$(printf %s "$$ADMIN_WEB_SECRET" | scripts/ensure-secret.sh ops_admin_web_secret); \
 	grafana_name=$$(printf %s "$${GRAFANA_TOKEN:-unset}" | scripts/ensure-secret.sh ops_grafana_token); \

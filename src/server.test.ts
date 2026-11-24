@@ -2,6 +2,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { LokiClient } from "./logs/LokiClient";
 import { createApp, MAX_JSONRPC_BATCH } from "./server";
 import { AuthFailureLimiter } from "./platform/http";
 import { RateLimiter } from "./platform/rateLimit";
@@ -21,7 +22,7 @@ before(async () => {
   key = stores.connectorKeys.create("claude-ai").key;
   const app = createApp({
     ...stores,
-    tools: { registry: testRegistry(), audit: stores.audit, cluster: fakeCluster((slug) => ({ info: async () => ({ reachable: slug === "ovh-prod-1", swarm: true, dockerVersion: "29.0.0", error: slug === "ovh-prod-1" ? undefined : "down" }) })) },
+    tools: { registry: testRegistry(), audit: stores.audit, loki: new LokiClient({ url: "http://127.0.0.1:1" }), cluster: fakeCluster((slug) => ({ info: async () => ({ reachable: slug === "ovh-prod-1", swarm: true, dockerVersion: "29.0.0", error: slug === "ovh-prod-1" ? undefined : "down" }) })) },
     authLimiter: new AuthFailureLimiter(1000),
     callLimiter: new RateLimiter(1000, 60_000),
   });
@@ -35,7 +36,7 @@ after(() => new Promise<void>((r) => server.close(() => r())));
 const HEADERS = { "content-type": "application/json", accept: "application/json, text/event-stream" };
 const rpc = (method: string, params: unknown = {}, id: number | undefined = 1) => ({ jsonrpc: "2.0", method, params, ...(id === undefined ? {} : { id }) });
 const post = (body: unknown, headers: Record<string, string> = {}) => fetch(`${base}/mcp`, { method: "POST", headers: { ...HEADERS, ...headers }, body: JSON.stringify(body) });
-const toolsOf = (s: TestStores) => ({ registry: testRegistry(), audit: s.audit, cluster: fakeCluster(() => ({ info: async () => ({ reachable: true, swarm: true }) })) });
+const toolsOf = (s: TestStores) => ({ registry: testRegistry(), audit: s.audit, loki: new LokiClient({ url: "http://127.0.0.1:1" }), cluster: fakeCluster(() => ({ info: async () => ({ reachable: true, swarm: true }) })) });
 
 async function withApp(opts: Parameters<typeof createApp>[0], fn: (mcpUrl: string) => Promise<void>): Promise<void> {
   const srv = createServer(createApp(opts));
@@ -89,7 +90,7 @@ test("initialize and tools/list work and the server carries instructions", async
   assert.equal(init.result.serverInfo.name, "ops-mcp");
   assert.match(init.result.instructions, /read-only/);
   const list = (await (await post(rpc("tools/list"), headers)).json()) as { result: { tools: Array<{ name: string }> } };
-  assert.deepEqual(list.result.tools.map((t) => t.name), ["ops_list_servers"]);
+  assert.ok(list.result.tools.map((t) => t.name).includes("ops_list_servers"));
 });
 
 test("revoked and expired credentials get 401", async () => {

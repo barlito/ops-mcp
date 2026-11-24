@@ -351,7 +351,7 @@ export function defineTool<Shape extends z.ZodRawShape, Item>(spec: ToolSpec<Sha
               credentialName: auth.name,
               tool: spec.name,
               ...scope,
-              query: query?.slice(0, AUDIT_QUERY_CHARS),
+              query: query === undefined ? undefined : redactAll(query).slice(0, AUDIT_QUERY_CHARS),
               queryHash,
               window: extra.window ? `${extra.window.from.toISOString()}/${extra.window.to.toISOString()}` : undefined,
               resultBytes: extra.resultBytes,

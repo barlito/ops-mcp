@@ -2,7 +2,7 @@
   "name": "ops-mcp",
   "version": "0.1.0",
   "private": true,
-  "description": "Read-only MCP server to diagnose production (Swarm state, logs, metrics, traces, deploys) without SSH.",
+  "description": "Read-only MCP server to diagnose production (Swarm state, logs, metrics, deploys) without SSH.",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",

@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { ToolError } from "../tools/contract";
 import { writeTemp } from "../test-support/fixtures";
 import { apiDeployment, apiStatus, GH_TOKEN, startGitHubStub } from "../test-support/github";
-import { GitHubClient, githubFromEnv } from "./GitHubClient";
+import { GitHubClient, githubFromEnv, RequestBudget } from "./GitHubClient";
 
 const T0 = "2026-06-01T11:40:00Z";
-const since = new Date("2026-06-01T00:00:00Z");
+const since = { from: new Date("2026-06-01T00:00:00Z"), to: new Date("2026-06-02T00:00:00Z") };
 
 const routes = {
   "/repos/barlito/carapp/deployments": { body: [apiDeployment(2, "v1.4.3", T0), apiDeployment(1, "v1.4.2", "2026-05-20T10:00:00Z")] },
@@ -63,16 +63,18 @@ test("401, 403 and rate limits become distinct errors that never echo the upstre
   const leak = `Bad credentials ${GH_TOKEN}`;
   const stub = await startGitHubStub({
     "/repos/barlito/a/deployments": { status: 401, body: { message: leak } },
-    "/repos/barlito/b/deployments": { status: 403, body: { message: leak } },
+    "/repos/barlito/b/deployments": { status: 403, body: { message: leak }, headers: { "x-ratelimit-remaining": "4990" } },
     "/repos/barlito/c/deployments": { status: 403, body: { message: "API rate limit exceeded" }, headers: { "x-ratelimit-remaining": "0" } },
+    "/repos/barlito/e/deployments": { status: 403, body: { message: "secondary rate limit" }, headers: { "retry-after": "60", "x-ratelimit-remaining": "4990" } },
+    "/repos/barlito/f/deployments": { status: 403, body: { message: "abuse" } },
     "/repos/barlito/d/deployments": { status: 500, body: { message: leak } },
   });
   try {
     const client = new GitHubClient(GH_TOKEN, { baseUrl: stub.url });
     const code = async (repo: string): Promise<[string, string]> => client.recentDeployments(repo, since).then(() => ["ok", ""], (e: ToolError) => [e.code, e.message]);
-    const results = await Promise.all(["a", "b", "c", "d", "missing"].map(code));
-    assert.deepEqual(results.map(([c]) => c), ["backend_auth", "backend_auth", "backend_unavailable", "backend_unavailable", "not_found"]);
-    assert.match(results[2]![1], /rate limit/);
+    const results = await Promise.all(["a", "b", "c", "d", "missing", "e", "f"].map(code));
+    assert.deepEqual(results.map(([c]) => c), ["backend_auth", "backend_auth", "backend_unavailable", "backend_unavailable", "not_found", "backend_unavailable", "backend_unavailable"]);
+    for (const i of [2, 5, 6]) assert.match(results[i]![1], /rate limit/);
     for (const [, message] of results) assert.ok(!message.includes("Bad credentials") && !message.includes(GH_TOKEN));
   } finally {
     await stub.close();
@@ -120,5 +122,58 @@ test("githubFromEnv: off without a file, a client with a token file, a warning w
     assert.equal(process.env.GH_DEPLOYMENTS_TOKEN, undefined);
   } finally {
     warn.mock.restore();
+  }
+});
+
+test("a rate limit or a 5xx serves the stale cache entry when there is one", async () => {
+  let limited = false;
+  const stub = await startGitHubStub({ ...routes, "/repos/barlito/carapp/deployments": () => (limited ? { status: 403, headers: { "retry-after": "30" } } : { body: routes["/repos/barlito/carapp/deployments"].body }) });
+  try {
+    const client = new GitHubClient(GH_TOKEN, { baseUrl: stub.url, cacheMs: 20 });
+    await client.recentDeployments("carapp", since);
+    limited = true;
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal((await client.recentDeployments("carapp", since))[0]?.id, 2);
+  } finally {
+    await stub.close();
+  }
+});
+
+test("statuses are only read for deployments created before the end of the window; an unreadable status keeps the deployment as unknown", async () => {
+  const stub = await startGitHubStub({
+    "/repos/barlito/carapp/deployments": { body: [apiDeployment(3, "v1.5.0", "2026-06-03T10:00:00Z"), apiDeployment(2, "v1.4.3", T0)] },
+    "/repos/barlito/carapp/deployments/2/statuses": { status: 500 },
+  });
+  try {
+    const list = await new GitHubClient(GH_TOKEN, { baseUrl: stub.url }).recentDeployments("carapp", since);
+    assert.deepEqual(list.map((d) => [d.id, d.status]), [[2, "unknown"]]);
+    assert.ok(!stub.seen.some((r) => r.path.includes("/deployments/3/")));
+  } finally {
+    await stub.close();
+  }
+});
+
+test("a request budget caps the HTTP calls of one tool call; cache hits are free", async () => {
+  const stub = await startGitHubStub(routes);
+  try {
+    const client = new GitHubClient(GH_TOKEN, { baseUrl: stub.url });
+    const budget = new RequestBudget(1);
+    const list = await client.recentDeployments("carapp", since, { budget });
+    assert.equal(list[0]?.status, "unknown");
+    assert.equal(budget.exhausted, true);
+    assert.equal(stub.seen.length, 1);
+    await client.recentDeployments("carapp", since, { budget });
+    assert.equal(stub.seen.length, 1);
+  } finally {
+    await stub.close();
+  }
+});
+
+test("a deployment of another environment is refused", async () => {
+  const stub = await startGitHubStub({ "/repos/barlito/carapp/deployments/8": { body: { ...apiDeployment(8, "v1", T0), environment: "staging" } } });
+  try {
+    await assert.rejects(new GitHubClient(GH_TOKEN, { baseUrl: stub.url }).deployment("carapp", 8), (e) => e instanceof ToolError && e.code === "not_found");
+  } finally {
+    await stub.close();
   }
 });

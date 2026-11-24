@@ -3,8 +3,9 @@ import { REPO_LABEL } from "../cluster/types";
 import type { Registry } from "../registry";
 import type { GhDeployment } from "./GitHubClient";
 
-const ROLLBACK_BEFORE_MS = 5 * 60_000;
-const ROLLBACK_AFTER_MS = 30 * 60_000;
+// A deployment is created before its rollout reaches Swarm, never long after.
+const BEFORE_UPDATE_MS = 30 * 60_000;
+const AFTER_UPDATE_MS = 5 * 60_000;
 
 export const DeployLinkSchema = z.object({
   deployment_id: z.number(),
@@ -19,8 +20,8 @@ export const DeployLinkSchema = z.object({
 export type DeployLink = z.infer<typeof DeployLinkSchema>;
 
 // swarm-deploy runs with --ref vX.Y.Z; swarm-rollback runs on the default branch.
-const isTagRef = (ref: string): boolean => /^v\d/.test(ref);
-const bareTag = (tag: string): string => tag.replace(/^v/, "");
+export const isTagRef = (ref: string): boolean => /^v\d/.test(ref);
+export const bareTag = (tag: string): string => tag.replace(/^v/, "");
 
 export interface SwarmFacts {
   at: number;
@@ -40,14 +41,15 @@ export const repoName = (repo: string): string => repo.slice(repo.lastIndexOf("/
 const nearest = (candidates: GhDeployment[], at: number): GhDeployment | undefined =>
   candidates.reduce<GhDeployment | undefined>((best, d) => (best === undefined || Math.abs(Date.parse(d.created_at) - at) < Math.abs(Date.parse(best.created_at) - at) ? d : best), undefined);
 
-// A tagged deployment whose tag equals an image tag, nearest in time; else, for a rollback (no tag in the
-// deployment), the nearest rollback deployment just before the update.
+// The deployment created just before the update (nearest in time) that is either tagged like one of its images
+// or has no tag (swarm-rollback runs on the default branch): a closer rollback wins over an older tagged deploy.
 export function matchDeployment(facts: SwarmFacts, deployments: GhDeployment[]): GhDeployment | undefined {
   const tags = new Set(facts.tags.map(bareTag));
-  const tagged = nearest(deployments.filter((d) => isTagRef(d.ref) && tags.has(bareTag(d.ref))), facts.at);
-  if (tagged) return tagged;
   return nearest(
-    deployments.filter((d) => !isTagRef(d.ref) && facts.at - Date.parse(d.created_at) >= -ROLLBACK_BEFORE_MS && facts.at - Date.parse(d.created_at) <= ROLLBACK_AFTER_MS),
+    deployments.filter((d) => {
+      const age = facts.at - Date.parse(d.created_at);
+      return age >= -AFTER_UPDATE_MS && age <= BEFORE_UPDATE_MS && (!isTagRef(d.ref) || tags.has(bareTag(d.ref)));
+    }),
     facts.at,
   );
 }

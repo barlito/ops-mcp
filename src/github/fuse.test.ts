@@ -39,3 +39,16 @@ test("a swarm-rollback deployment (ref is the default branch) matches by time an
   assert.equal(matchDeployment({ at: at("2026-06-01T13:00:00Z"), tags: ["v1.4.2"] }, [rollback]), undefined);
   assert.equal(linkOf(d).tag, undefined);
 });
+
+test("v1.0.0, v1.1.0, then a rollback to v1.0.0: the update links to the rollback deployment, not the old tagged one", () => {
+  const v100 = ghDeployment({ id: 1, ref: "v1.0.0", created_at: "2026-06-01T11:20:00Z" });
+  const v110 = ghDeployment({ id: 2, ref: "v1.1.0", created_at: "2026-06-01T11:30:00Z" });
+  const rollback = ghDeployment({ id: 3, ref: "main", created_at: "2026-06-01T11:40:00Z", creator: "github-actions" });
+  const d = matchDeployment({ at: at("2026-06-01T11:41:00Z"), tags: ["v1.0.0"] }, [v100, v110, rollback])!;
+  assert.deepEqual([d.id, linkOf(d, "v1.0.0").kind, linkOf(d, "v1.0.0").tag], [3, "rollback", "v1.0.0"]);
+});
+
+test("a tagged deployment is only matched when created shortly before the update", () => {
+  const old = ghDeployment({ id: 1, ref: "v1.0.0", created_at: "2026-06-01T09:00:00Z" });
+  assert.equal(matchDeployment({ at: at("2026-06-01T11:41:00Z"), tags: ["v1.0.0"] }, [old]), undefined);
+});

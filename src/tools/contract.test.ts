@@ -18,9 +18,12 @@ import {
   resolveWindow,
   scopeShape,
   ToolError,
+  type ToolGuard,
   UNTRUSTED_DATA_NOTICE,
 } from "./contract";
 import { TOOLS } from "./index";
+import { RateLimiter } from "../platform/rateLimit";
+import { SlotLimiter } from "../platform/slotLimiter";
 
 const NOW = new Date("2026-06-01T12:00:00.000Z");
 const iso = (d: Date): string => d.toISOString();
@@ -156,7 +159,7 @@ test("buildResult drops items from the end until the result fits and flags trunc
   assert.ok(Buffer.byteLength((b.result.content[0] as { text: string }).text) <= 4096);
   assert.equal(b.bytes, Buffer.byteLength(JSON.stringify(b.envelope)));
   assert.ok(b.bytes > 4096 / 2, "fills most of the budget");
-  assert.match(b.envelope.summary, /output capped at 4096 bytes/);
+  assert.match(b.envelope.summary, /capped at 4096 bytes/);
 });
 
 test("buildResult only offers the handler's cursor when no item was dropped, or computes it from the kept count", () => {
@@ -265,7 +268,8 @@ test("the query hash does not depend on argument order and the query text is cap
   await call("test_echo", { server: "lab", stack: "a" });
   const hashes = (stores.db.prepare("SELECT query_hash h FROM audit_log").all() as Array<{ h: string }>).map((r) => r.h);
   assert.equal(hashes[0], hashes[1]);
-  await call("test_echo", { service: "s".repeat(1000) });
+  const long = "s".repeat(128);
+  await call("test_echo", { server: long, stack: long, service: long });
   const q = (stores.db.prepare("SELECT query FROM audit_log ORDER BY id DESC LIMIT 1").get() as { query: string }).query;
   assert.equal(q.length, 256);
 });
@@ -340,4 +344,109 @@ test("an audit failure never fails the call", async () => {
   } finally {
     console.error = prev;
   }
+});
+
+// ---- guard, redaction, signal ----------------------------------------------
+
+const gate = defineTool({
+  name: "test_gate",
+  description: "Blocks until released.",
+  inputSchema: z.object({ mode: z.enum(["wait", "leak-error", "leak-tool-error", "signal"]).default("wait") }),
+  outputSchema: envelopeSchema(Item),
+  async handler(args, ctx) {
+    const token = "ghp_" + "b".repeat(36);
+    if (args.mode === "leak-error") throw new Error(`failed with https://user:pw@host/x and ${token}`);
+    if (args.mode === "leak-tool-error") throw new ToolError("upstream", `bad ${token} at https://u:p@h/`);
+    if (args.mode === "signal") return { summary: ctx.signal instanceof AbortSignal ? "signal ok" : "no signal", items: [] };
+    await new Promise((r) => setTimeout(r, 80));
+    return { summary: "done", items: [] };
+  },
+});
+
+function guard(over: Partial<ToolGuard> = {}): ToolGuard {
+  return { calls: new RateLimiter(100, 60_000), slots: new SlotLimiter(10), maxPerCredential: 1, track: () => () => {}, ...over };
+}
+
+test("concurrency is limited per credential per tool call, refusals are audited as busy", async () => {
+  const { call, stores } = await connect([gate], { guard: guard() });
+  const [a, b] = await Promise.all([call("test_gate"), call("test_gate")]);
+  const results = [a, b];
+  assert.equal(results.filter((r) => r.isError).length, 1);
+  assert.match(textOf(results.find((r) => r.isError)!), /Error \[busy\]/);
+  const audited = (stores.db.prepare("SELECT result FROM audit_log ORDER BY id").all() as Array<{ result: string }>).map((r) => r.result).sort();
+  assert.deepEqual(audited, ["busy", "ok"]);
+  assert.ok(!(await call("test_gate")).isError, "slot released after the handler settled");
+});
+
+test("the global slot cap applies across credentials", async () => {
+  const slots = new SlotLimiter(1);
+  const { call } = await connect([gate], { guard: guard({ slots, maxPerCredential: 5 }) });
+  const [a, b] = await Promise.all([call("test_gate"), call("test_gate")]);
+  assert.equal([a, b].filter((r) => r.isError).length, 1);
+});
+
+test("the call rate limit answers rate_limited and is audited", async () => {
+  const { call, stores } = await connect([gate], { guard: guard({ calls: new RateLimiter(1, 60_000), maxPerCredential: 5 }) });
+  assert.ok(!(await call("test_gate", { mode: "signal" })).isError);
+  const r = await call("test_gate", { mode: "signal" });
+  assert.match(textOf(r), /Error \[rate_limited\]/);
+  assert.equal((stores.db.prepare("SELECT result FROM audit_log ORDER BY id DESC LIMIT 1").get() as { result: string }).result, "rate_limited");
+});
+
+test("handlers are tracked as in flight until they settle", async () => {
+  let inflight = 0;
+  let peak = 0;
+  const { call } = await connect([gate], { guard: guard({ track: () => { peak = Math.max(peak, ++inflight); return () => void inflight--; } }) });
+  await call("test_gate");
+  assert.equal(peak, 1);
+  assert.equal(inflight, 0);
+});
+
+test("the handler gets an abort signal", async () => {
+  const { call } = await connect([gate]);
+  assert.equal((await call("test_gate", { mode: "signal" })).structuredContent?.summary, "signal ok");
+});
+
+test("secrets and URL credentials never reach the client, the audit row or the log", async () => {
+  const { call, stores } = await connect([gate]);
+  const logged: string[] = [];
+  const prev = console.error;
+  console.error = (...a: unknown[]) => void logged.push(a.join(" "));
+  try {
+    const internal = await call("test_gate", { mode: "leak-error" });
+    assert.equal(textOf(internal), "Error [internal]: Internal error.");
+    const tool = await call("test_gate", { mode: "leak-tool-error" });
+    assert.ok(!/ghp_b|u:p@/.test(textOf(tool)));
+    assert.match(textOf(tool), /REDACTED GitHub token/);
+  } finally {
+    console.error = prev;
+  }
+  const rows = JSON.stringify(stores.db.prepare("SELECT detail FROM audit_log").all());
+  assert.ok(!/ghp_b|user:pw|u:p@/.test(rows), rows);
+  assert.match(rows, /REDACTED GitHub token/);
+  assert.match(rows, /\*\*\*@/);
+  assert.ok(!/ghp_b|user:pw/.test(logged.join("\n")));
+});
+
+test("a 0-item envelope always fits the smallest cap, whatever the summary and scope", () => {
+  const name = "n".repeat(128);
+  const b = buildResult({ summary: "é".repeat(5000), items: [{ line: "x".repeat(2000) }] }, win, { server: name, stack: name, service: name }, 1024);
+  assert.equal(b.envelope.items.length, 0);
+  assert.ok(Buffer.byteLength(JSON.stringify(b.envelope)) <= 1024);
+  assert.ok(Buffer.byteLength((b.result.content[0] as { text: string }).text) <= 1024);
+});
+
+test("scope names are bounded and plain", () => {
+  const s = z.object(scopeShape);
+  assert.ok(s.safeParse({ server: "ovh-prod-1", stack: "obs", service: "carapp_php" }).success);
+  for (const bad of ["", "a".repeat(129), 'x"}|{', "a b", "-lead", "a/b"]) assert.ok(!s.safeParse({ service: bad }).success, bad);
+});
+
+test("the audit query hash ignores key order at every depth", async () => {
+  const nested = defineTool({ name: "test_nested", description: "d", inputSchema: z.object({ a: z.object({ x: z.number(), y: z.number() }).optional() }), outputSchema: envelopeSchema(Item), handler: async () => ({ summary: "s", items: [] }) });
+  const { call, stores } = await connect([nested]);
+  await call("test_nested", { a: { x: 1, y: 2 } });
+  await call("test_nested", { a: { y: 2, x: 1 } });
+  const h = (stores.db.prepare("SELECT query_hash h FROM audit_log").all() as Array<{ h: string }>).map((r) => r.h);
+  assert.equal(h[0], h[1]);
 });

@@ -1,9 +1,8 @@
 // vendored from second-brain-mcp@d4ba1c5
-// Audit of failed authentications, shared by the Bearer and connector-key paths. Per-client coalescing
-// lives in the caller's limiter; this adds a global per-minute cap so many clients cannot flood the log.
 import type { AuditLog } from "./audit";
 import { GlobalBudget } from "./rateLimit";
-import { errorMessage, redact } from "./util";
+import { errorMessage } from "./util";
+import { redactAll } from "./redact/secrets";
 
 const SWALLOWED = (n: number): string => `${n} further auth failures not logged (per-minute audit cap)`;
 
@@ -35,7 +34,7 @@ export class AuthFailureAudit {
       if (b.log) this.audit.logAuthFailure({ clientIp, reason });
     } catch (err) {
       // A DB failure here must still yield a 401.
-      console.error("auth failure audit write failed:", redact(errorMessage(err)));
+      console.error("auth failure audit write failed:", redactAll(errorMessage(err)));
     }
   }
 }

@@ -9,7 +9,23 @@ import { testRegistry, testStores, type TestStores } from "./fixtures";
 
 export const TEST_AUTH: AuthContext = { credentialId: "cred-1", name: "test-client", kind: "token", clientIp: "10.0.0.1" };
 
-export const fakeCluster = (impl: (slug: string) => ClusterSource): ClusterSourceProvider => (server) => impl(server.slug);
+const unimplemented = (): never => {
+  throw new Error("not stubbed");
+};
+
+// Methods a test does not stub throw.
+export const stubSource = (over: Partial<ClusterSource> = {}): ClusterSource => ({
+  info: unimplemented,
+  listNodes: unimplemented,
+  listStacks: unimplemented,
+  listServices: unimplemented,
+  getService: unimplemented,
+  listTasks: unimplemented,
+  serviceUpdateHistory: unimplemented,
+  ...over,
+});
+
+export const fakeCluster = (impl: (slug: string) => Partial<ClusterSource>): ClusterSourceProvider => (server) => stubSource(impl(server.slug));
 
 export async function connect(tools: ToolDefinition[], over: Partial<ToolDeps> = {}) {
   const stores: TestStores = testStores();

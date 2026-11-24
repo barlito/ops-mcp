@@ -1,0 +1,74 @@
+{
+  "ID": "k3x9v2m7q1w5e8r4t6y0u2i4o",
+  "Version": { "Index": 4821 },
+  "CreatedAt": "2026-05-02T09:14:03.118Z",
+  "UpdatedAt": "2026-06-01T11:42:10.552Z",
+  "Spec": {
+    "Name": "shop_web",
+    "Labels": {
+      "com.docker.stack.image": "ghcr.io/barlito/shop:1.5.0",
+      "com.docker.stack.namespace": "shop",
+      "fr.barlito.repo": "barlito/shop",
+      "traefik.enable": "true",
+      "traefik.http.routers.shop.rule": "Host(`shop.barlito.fr`) || Host(`www.shop.barlito.fr`)",
+      "traefik.http.routers.shop.middlewares": "shop-auth",
+      "traefik.http.middlewares.shop-auth.basicauth.users": "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/",
+      "traefik.http.middlewares.shop-hdr.headers.customrequestheaders.X-Proxy-Secret": "PROXYSECRET-7f3a9c",
+      "traefik.http.services.shop.loadbalancer.server.port": "8080",
+      "internal.note": "do not leak"
+    },
+    "TaskTemplate": {
+      "ContainerSpec": {
+        "Image": "ghcr.io/barlito/shop:1.5.0@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff",
+        "Labels": { "com.docker.stack.namespace": "shop" },
+        "Args": ["--port=8080", "--password=Hunter2Hunter2", "--token", "tok-ArgSecret99"],
+        "Env": [
+          "DATABASE_URL=postgresql://app:S3cretP4ss@db:5432/app",
+          "APP_SECRET=abc123def456ghi789",
+          "SENTRY_DSN=https://b3a1c0ffee77@o1.ingest.sentry.io/2"
+        ],
+        "Privileges": { "CredentialSpec": null, "SELinuxContext": null },
+        "Secrets": [
+          { "File": { "Name": "db_password", "UID": "0", "GID": "0", "Mode": 292 }, "SecretID": "x7q2k9m3n5p1r8t4v6w0y2z4a", "SecretName": "shop_db_password" }
+        ],
+        "Configs": [
+          { "File": { "Name": "/etc/shop.ini", "UID": "0", "GID": "0", "Mode": 292 }, "ConfigID": "c9d8e7f6a5b4c3d2e1f0a9b8c", "ConfigName": "shop_ini_v3" }
+        ],
+        "Isolation": "default"
+      },
+      "Resources": {
+        "Limits": { "NanoCPUs": 500000000, "MemoryBytes": 536870912 },
+        "Reservations": { "MemoryBytes": 134217728 }
+      },
+      "Placement": { "Constraints": ["node.role == worker"], "Platforms": [{ "Architecture": "amd64", "OS": "linux" }] },
+      "Networks": [{ "Target": "n1a2b3c4d5e6f7a8b9c0d1e2f", "Aliases": ["web"] }],
+      "ForceUpdate": 0,
+      "Runtime": "container"
+    },
+    "Mode": { "Replicated": { "Replicas": 1 } },
+    "UpdateConfig": { "Parallelism": 1, "FailureAction": "rollback", "Order": "start-first" },
+    "EndpointSpec": { "Mode": "vip" }
+  },
+  "PreviousSpec": {
+    "Name": "shop_web",
+    "Labels": { "com.docker.stack.namespace": "shop" },
+    "TaskTemplate": {
+      "ContainerSpec": {
+        "Image": "ghcr.io/barlito/shop:1.4.2@sha256:aa11bb22cc33dd44ee55ff66aa11bb22cc33dd44ee55ff66aa11bb22cc33dd44",
+        "Env": ["DATABASE_URL=postgresql://app:S3cretP4ss@db:5432/app", "APP_SECRET=abc123def456ghi789"]
+      }
+    },
+    "Mode": { "Replicated": { "Replicas": 1 } }
+  },
+  "Endpoint": {
+    "Spec": { "Mode": "vip" },
+    "Ports": [{ "Protocol": "tcp", "TargetPort": 8080, "PublishedPort": 8080, "PublishMode": "ingress" }],
+    "VirtualIPs": [{ "NetworkID": "n1a2b3c4d5e6f7a8b9c0d1e2f", "Addr": "10.0.1.7/24" }]
+  },
+  "UpdateStatus": {
+    "State": "rollback_completed",
+    "StartedAt": "2026-06-01T11:40:02.001Z",
+    "CompletedAt": "2026-06-01T11:42:10.552Z",
+    "Message": "rollback completed"
+  }
+}

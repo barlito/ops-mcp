@@ -61,7 +61,7 @@ Docker API access goes through `dockerproxy-ops` (docker-socket-proxy: read-only
 ## Metrics configuration
 
 - `PROM_URL` (default `http://prometheus:9090`): Prometheus, reached over the external `obs_query` network.
-- `GRAFANA_URL` (optional): Grafana Alerting alerts in `ops_alerts`, read with a service account token (Viewer) from the Docker secret file `/run/secrets/grafana_token`. Local: put the token in `data/grafana-token` before `make deploy`; prod: `GRAFANA_TOKEN` secret and `GRAFANA_URL` variable of the Deploy workflow. Without a token the secret holds `unset` and Grafana is ignored; an unreadable token file logs a warning and `ops_alerts` reports Grafana as unavailable. Without `GRAFANA_URL`, `ops_alerts` returns Prometheus alerts only and says so.
+- `GRAFANA_URL` (optional): Grafana Alerting alerts in `ops_alerts`, read with a service account token (Viewer) from the Docker secret file `/run/secrets/grafana_token`. Local: put the token in `data/grafana-token` before `make deploy`; prod: `GRAFANA_TOKEN` and `GRAFANA_URL` secrets of the `production` environment. Without a token the secret holds `unset` and Grafana is ignored; an unreadable token file logs a warning and `ops_alerts` reports Grafana as unavailable. Without `GRAFANA_URL`, `ops_alerts` returns Prometheus alerts only and says so.
 - Traefik series are matched on the `service` label equal to the Swarm service name, its stack prefix or the auto-generated name (`carapp_php` matches `carapp_php@...`, `carapp@...` and `carapp-php@...`): Traefik names services after the `traefik.http.services.<name>` label, not after the Swarm service.
 - `make test.integration-metrics` backfills deterministic data into a throwaway Prometheus (compose project `ops-mcp-it-metrics`) and runs the tools against it.
 
@@ -100,4 +100,4 @@ Adding a tool: create `src/tools/<name>.ts` with `defineTool({...})` and add one
 
 ## Deploy
 
-Releases and deploys run through GitHub Actions (`release.yaml`, `deploy.yaml`, `rollback.yaml`); see [docs/DEPLOY.md](docs/DEPLOY.md) for the required secrets, variables and the first-deploy checklist.
+Releases and deploys run through GitHub Actions (`release.yaml`, `deploy.yaml`, `rollback.yaml`, thin callers of the shared [barlito/ci](https://github.com/barlito/ci) workflows `@v1`); see [docs/DEPLOY.md](docs/DEPLOY.md) for the required secrets, variables and the first-deploy checklist.

@@ -21,7 +21,7 @@ Releases are cut with GitHub Releases and deployed with GitHub Actions. Known ga
 - Environment `production` (deployment branches: tag pattern `v*` for deploy, the default branch for rollback), with:
   - variable `SERVER_HOST`;
   - secrets `SERVER_USERNAME`, `SERVER_PORT`, `SERVER_HOST_KEY` (full `known_hosts` line pinning the host, e.g. `[1.2.3.4]:3333 ssh-ed25519 AAAA...`; there is no `ssh-keyscan` fallback), `SSH_PRIVATE_KEY`, `DOCKER_HUB_USERNAME`, `DOCKER_HUB_READ_ONLY_ACCESS_TOKEN` (deploy/rollback, no fallback), `ADMIN_PROXY_SECRET`, `ADMIN_WEB_SECRET`;
-  - optional secrets `GRAFANA_URL`, `GRAFANA_TOKEN`, `GH_DEPLOYMENTS_TOKEN` (fine-grained read-only token for the deployments history, phase 6) and `AUTHELIA_SESSION_COOKIE` (only if not `authelia_session`). The shared workflow exports secrets only, never variables, hence these being secrets. An empty `GRAFANA_TOKEN` / `GH_DEPLOYMENTS_TOKEN` creates a placeholder Docker secret (`unset`).
+  - secrets `GRAFANA_URL`, `GRAFANA_TOKEN`, `GH_DEPLOYMENTS_TOKEN` (fine-grained read-only token for the deployments history, phase 6) and `AUTHELIA_SESSION_COOKIE`: all four must exist (the shared workflow fails on a missing `env-secrets` name and GitHub secrets cannot be empty). Set the value `unset` when not used (no Grafana, cookie `authelia_session`): `make deploy.prod` maps it to empty or to a placeholder Docker secret. The shared workflow exports secrets only, never variables.
 - Repository secrets: `DOCKER_HUB_USERNAME`, `DOCKER_HUB_READ_WRITE_DELETE_ACCESS_TOKEN` (release only).
 - Each deploy or rollback run creates a GitHub Deployment on `production` (tag, commit, run, status).
 - Docker Hub: private or public repository `barlito/ops-mcp`.

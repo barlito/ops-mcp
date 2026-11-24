@@ -29,11 +29,22 @@ services:
       - ADMIN_GROUP=admins
       # Authelia session cookie the CSRF tokens are bound to (Authelia's default name)
       - AUTHELIA_SESSION_COOKIE=${AUTHELIA_SESSION_COOKIE:-authelia_session}
-      # Shared secret Traefik injects (X-Ops-Admin-Proxy) after Authelia, and the CSRF/sealing key
-      - ADMIN_PROXY_SECRET=${ADMIN_PROXY_SECRET:?ADMIN_PROXY_SECRET is required (see docs/DEPLOY.md)}
-      - ADMIN_WEB_SECRET=${ADMIN_WEB_SECRET:?ADMIN_WEB_SECRET is required (see docs/DEPLOY.md)}
+      # Shared secret Traefik injects (X-Ops-Admin-Proxy) after Authelia, and the CSRF/sealing key: Docker secret files
+      - ADMIN_PROXY_SECRET_FILE=/run/secrets/admin_proxy_secret
+      - ADMIN_WEB_SECRET_FILE=/run/secrets/admin_web_secret
     # One SQLite file: two tasks must never overlap.
     stop_grace_period: 30s
+    secrets:
+      - source: admin_proxy_secret
+        target: admin_proxy_secret
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: admin_web_secret
+        target: admin_web_secret
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
     configs:
       - source: ops_registry
         target: /etc/ops-mcp/registry.yaml
@@ -132,6 +143,16 @@ networks:
   ops_docker:
     driver: overlay
     internal: true
+
+# Docker secrets (files under /run/secrets): the service environment is readable through the Docker API.
+# Immutable, so the Makefile creates them under a name carrying a hash of the value.
+secrets:
+  admin_proxy_secret:
+    external: true
+    name: ${ADMIN_PROXY_SECRET_NAME:?ADMIN_PROXY_SECRET_NAME is required}
+  admin_web_secret:
+    external: true
+    name: ${ADMIN_WEB_SECRET_NAME:?ADMIN_WEB_SECRET_NAME is required}
 
 configs:
   # Swarm configs are immutable: the name carries a hash of the content (CONFIG_VERSION, set by the

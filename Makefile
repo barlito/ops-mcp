@@ -72,7 +72,10 @@ deploy: ## Build the image and deploy the stack locally (Swarm)
 	mkdir -p data
 	@# Admin web secrets: generated once (0600, data/ is gitignored), reused on every deploy.
 	@umask 077; for f in admin-proxy-secret admin-web-secret; do [ -s data/$$f ] || openssl rand -hex 32 > data/$$f; chmod 600 data/$$f; done
-	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_WEB_SECRET=$$(cat data/admin-web-secret) CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
+	@# The proxy secret also stays in the Traefik label; the app reads both from Docker secrets (files).
+	proxy_name=$$(scripts/ensure-secret.sh ops_admin_proxy_secret < data/admin-proxy-secret); \
+	web_name=$$(scripts/ensure-secret.sh ops_admin_web_secret < data/admin-web-secret); \
+	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
 	  docker compose build && $(call stack_deploy,,)
 	$(MAKE) prune-local-images
 
@@ -91,14 +94,16 @@ echo "cannot inspect $(svc_full) to mark it: $$out" >&2; exit 1
 endef
 
 # Rolling stack deploy (never `stack rm`: a recreated service has nothing to roll back to).
-# Needs TAG + ADMIN_PROXY_SECRET + ADMIN_WEB_SECRET in the env; the image must be published.
+# Needs TAG + ADMIN_PROXY_SECRET + ADMIN_WEB_SECRET in the env (turned into Docker secrets); the image must be published.
 # --detach=false waits for convergence (or Swarm's own rollback).
 deploy.prod: export IMAGE_TAG := $(TAG)
 deploy.prod: ## Deploy the whole prod stack (TAG=<release tag>): backup, stack deploy, assert, smoke, prune
 	@test -n "$(TAG)" || { echo "TAG is required (TAG=<tag> make deploy.prod)" >&2; exit 1; }
 	$(MAKE) db.backup
 	@$(call mark_service,$(mark_file))
-	export CONFIG_VERSION=$$(sha1sum config/registry.yaml | cut -c1-10); \
+	proxy_name=$$(printf %s "$$ADMIN_PROXY_SECRET" | scripts/ensure-secret.sh ops_admin_proxy_secret); \
+	web_name=$$(printf %s "$$ADMIN_WEB_SECRET" | scripts/ensure-secret.sh ops_admin_web_secret); \
+	export ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name CONFIG_VERSION=$$(sha1sum config/registry.yaml | cut -c1-10); \
 	  $(call stack_deploy,-f docker-compose-prod.yml,--with-registry-auth --detach=false)
 	$(MAKE) deploy.assert_image
 	$(MAKE) smoke.test

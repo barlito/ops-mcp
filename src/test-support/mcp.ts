@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ClusterSource, ClusterSourceProvider } from "../cluster/ClusterSource";
+import { LokiClient } from "../logs/LokiClient";
 import type { AuthContext } from "../platform/auth/context";
 import { registerTools, type ToolDefinition, type ToolDeps } from "../tools/contract";
 import { testRegistry, testStores, type TestStores } from "./fixtures";
@@ -33,6 +34,7 @@ export async function connect(tools: ToolDefinition[], over: Partial<ToolDeps> =
     registry: testRegistry(),
     audit: stores.audit,
     cluster: fakeCluster(() => ({ info: async () => ({ reachable: true, swarm: true, dockerVersion: "29.0.0" }) })),
+    loki: new LokiClient({ url: "http://127.0.0.1:1" }),
     now: () => new Date("2026-06-01T12:00:00.000Z"),
     ...over,
   };

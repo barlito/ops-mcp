@@ -32,6 +32,8 @@ services:
       # Shared secret Traefik injects (X-Ops-Admin-Proxy) after Authelia, and the CSRF/sealing key: Docker secret files
       - ADMIN_PROXY_SECRET_FILE=/run/secrets/admin_proxy_secret
       - ADMIN_WEB_SECRET_FILE=/run/secrets/admin_web_secret
+      # Loki query API, reachable over the obs stack's external query network
+      - LOKI_URL=http://loki:3100
     # One SQLite file: two tasks must never overlap.
     stop_grace_period: 30s
     secrets:
@@ -56,6 +58,7 @@ services:
     networks:
       - traefik_traefik_proxy
       - ops_docker
+      - obs_query
     # Bounded json-file logs (the default driver keeps everything)
     logging:
       driver: json-file
@@ -138,6 +141,9 @@ services:
 
 networks:
   traefik_traefik_proxy:
+    external: true
+  # Created by the obs stack (observability-stack): read-only query path to Loki.
+  obs_query:
     external: true
   # Nothing but ops-mcp and its proxy: no route out, no route in.
   ops_docker:

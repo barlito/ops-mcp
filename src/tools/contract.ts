@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { ClusterSourceProvider } from "../cluster/ClusterSource";
+import type { LokiApi } from "../logs/LokiClient";
 import type { AuditLog } from "../platform/audit";
 import type { AuthContext } from "../platform/auth/context";
 import type { RateLimiter } from "../platform/rateLimit";
@@ -43,7 +44,7 @@ const RFC3339_RE = new RegExp(`^${RFC3339}$`);
 const UNIT_MS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
 // Names as Docker/Loki know them; bounded so scope fields cannot blow the envelope or inject selectors.
-const nameParam = z
+export const nameParam = z
   .string()
   .max(128)
   .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, "must be a plain name (letters, digits, _ . -)");
@@ -280,6 +281,7 @@ export interface ToolDeps {
   registry: Registry;
   cluster: ClusterSourceProvider;
   audit: AuditLog;
+  loki: LokiApi;
   now?: () => Date;
   guard?: ToolGuard;
 }
@@ -374,7 +376,7 @@ export function defineTool<Shape extends z.ZodRawShape, Item>(spec: ToolSpec<Sha
           const untrack = guard ? guard.track() : () => {};
 
           try {
-            const ctx: ToolContext = { registry: deps.registry, cluster: deps.cluster, audit: deps.audit, auth, now: deps.now ?? (() => new Date()), signal: extra.signal };
+            const ctx: ToolContext = { registry: deps.registry, cluster: deps.cluster, audit: deps.audit, loki: deps.loki, auth, now: deps.now ?? (() => new Date()), signal: extra.signal };
             const now = ctx.now();
             const reply = await spec.handler(args as z.infer<z.ZodObject<Shape>>, ctx);
             const window = reply.window ?? windowOf(args, now);

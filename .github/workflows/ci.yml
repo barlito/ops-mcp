@@ -8,11 +8,6 @@ on:
     branches: [main]
     paths-ignore: ['**.md', 'docs/**']
   workflow_call:
-    inputs:
-      docker:
-        description: "Run the docker build job (release.yaml skips it: it builds the image itself)"
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -59,42 +54,3 @@ jobs:
           persist-credentials: false
 
       - run: make test.integration-metrics
-
-  docker:
-    # Skipped only when release.yaml calls this workflow with docker: false (its own build is the check)
-    if: ${{ github.event_name != 'release' || inputs.docker }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      # Cache is only written from main (PR caches are not restorable by other refs anyway)
-      - name: Docker build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          platforms: linux/amd64
-          push: false
-          outputs: type=cacheonly
-          cache-from: type=gha,scope=image
-          cache-to: ${{ github.event_name == 'push' && 'type=gha,scope=image,mode=max' || '' }}
-
-      - name: Validate compose files
-        env:
-          HOST_UID: "1000"
-          HOST_GID: "1000"
-          CONFIG_VERSION: ci
-          ADMIN_PROXY_SECRET_NAME: ci
-          ADMIN_WEB_SECRET_NAME: ci
-          GRAFANA_TOKEN_SECRET_NAME: ci
-          # Dummy values: only checks that the files interpolate.
-          ADMIN_PROXY_SECRET: ci-dummy-admin-proxy-secret-0123456789abcdef
-          ADMIN_WEB_SECRET: ci-dummy-admin-web-secret-0123456789abcdef
-        run: |
-          docker compose -f docker-compose.yaml config -q
-          IMAGE_TAG=ci docker compose -f docker-compose-prod.yml config -q

@@ -1,0 +1,15 @@
+name: Image scan
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    uses: barlito/ci/.github/workflows/image-scan.yaml@v1
+    with:
+      target: runtime

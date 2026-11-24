@@ -6,20 +6,24 @@ Releases are cut with GitHub Releases and deployed with GitHub Actions. Known ga
 
 ## Release, deploy, rollback (GitHub Actions)
 
-1. **Release**: create a GitHub Release `vX.Y.Z`. `release.yaml` runs the tests, then builds and pushes `barlito/ops-mcp:vX.Y.Z` (and `:latest` unless the release is a prerelease) to Docker Hub. Tags are immutable: never reuse one.
-2. **Deploy**: run the Deploy workflow on that tag (it refuses a non-tag ref, a tag that is not `vX.Y.Z[-suffix]`, and a tag whose image is not on Docker Hub):
+1. **Release**: create a GitHub Release `vX.Y.Z`. `release.yaml` runs the tests, then calls the shared `barlito/ci` `docker-release` workflow, which builds and pushes `barlito/ops-mcp:vX.Y.Z` (and `:latest` when it is the highest stable tag) to Docker Hub with SBOM and provenance (buildcache on ghcr). Tags are immutable: never reuse one.
+2. **Deploy**: run the Deploy workflow on that tag (the shared `swarm-deploy` workflow refuses a non-tag ref, a tag that is not `vX.Y.Z[-suffix]`, and a tag whose image is not on Docker Hub, then runs `make deploy.update` or `make deploy.prod`):
    ```bash
    gh workflow run deploy.yaml --ref vX.Y.Z                    # image-only update
    gh workflow run deploy.yaml --ref vX.Y.Z -f re-deploy=true  # full stack deploy
    ```
-   - Image-only: `make db.backup`, `docker service update --with-registry-auth --image ...`, `make deploy.assert_image` (waits up to 180 s for the new image to run healthy), `make smoke.test` (`/health`), `make deploy.prune`.
-   - `re-deploy=true` applies the whole `docker-compose-prod.yml` (`make deploy.prod`). **The first deploy needs it**, and so does any compose or `config/registry.yaml` change: the registry is a Swarm config named `ops_registry_<sha1 of the file>`, so a changed file creates a new config and rolls the service.
-3. **Rollback**: `gh workflow run rollback.yaml --ref main -f tag=vX.Y.Z [-f restore-db=ops-<ts>.db]`. It backs up the current DB, optionally restores a backup, switches the image, asserts and smoke-tests.
+   - Image-only: `make deploy.update`: `make db.backup`, `docker service update --with-registry-auth --image ...`, `make deploy.assert_image` (waits up to 180 s for the new image to run healthy), `make smoke.test` (`/health`), `make deploy.prune`.
+   - `re-deploy=true` applies the whole `docker-compose-prod.yml` (`make deploy.prod`: backup, rolling `docker stack deploy --with-registry-auth`, assert, smoke, prune). **The first deploy needs it**, and so does any compose or `config/registry.yaml` change: the registry is a Swarm config named `ops_registry_<sha1 of the file>`, so a changed file creates a new config and rolls the service.
+3. **Rollback**: `gh workflow run rollback.yaml --ref main -f tag=vX.Y.Z [-f restore-db=ops-<ts>.db]` (`make rollback TAG=... RESTORE=...`). It backs up the current DB, optionally restores a backup, switches the image, asserts and smoke-tests.
 
 ## Required repo configuration
 
-- Secrets: `SSH_PRIVATE_KEY`, `DOCKER_HUB_USERNAME`, `DOCKER_HUB_READ_WRITE_DELETE_ACCESS_TOKEN` (release only), `DOCKER_HUB_READ_ONLY_ACCESS_TOKEN` (deploy/rollback, no fallback), `ADMIN_PROXY_SECRET`, `ADMIN_WEB_SECRET`.
-- Variables: `SERVER_HOST`, `SERVER_PORT`, `SERVER_USERNAME`, `SERVER_HOST_KEY` (full `known_hosts` line pinning the host, e.g. `[1.2.3.4]:3333 ssh-ed25519 AAAA...`; there is no `ssh-keyscan` fallback), and optionally `AUTHELIA_SESSION_COOKIE` (only if not `authelia_session`).
+- Environment `production` (deployment branches: tag pattern `v*` for deploy, the default branch for rollback), with:
+  - variable `SERVER_HOST`;
+  - secrets `SERVER_USERNAME`, `SERVER_PORT`, `SERVER_HOST_KEY` (full `known_hosts` line pinning the host, e.g. `[1.2.3.4]:3333 ssh-ed25519 AAAA...`; there is no `ssh-keyscan` fallback), `SSH_PRIVATE_KEY`, `DOCKER_HUB_USERNAME`, `DOCKER_HUB_READ_ONLY_ACCESS_TOKEN` (deploy/rollback, no fallback), `ADMIN_PROXY_SECRET`, `ADMIN_WEB_SECRET`;
+  - secrets `GRAFANA_URL`, `GRAFANA_TOKEN`, `GH_DEPLOYMENTS_TOKEN` (fine-grained read-only token for the deployments history, phase 6) and `AUTHELIA_SESSION_COOKIE`: all four must exist (the shared workflow fails on a missing `env-secrets` name and GitHub secrets cannot be empty). `GRAFANA_URL` is `http://grafana:3000` (reachable over `traefik_traefik_proxy`; the public URL goes through Authelia and breaks Bearer auth) or `unset`. Set the value `unset` when not used (no Grafana, cookie `authelia_session`): `make deploy.prod` maps it to empty or to a placeholder Docker secret. The shared workflow exports secrets only, never variables.
+- Repository secrets: `DOCKER_HUB_USERNAME`, `DOCKER_HUB_READ_WRITE_DELETE_ACCESS_TOKEN` (release only).
+- Each deploy or rollback run creates a GitHub Deployment on `production` (tag, commit, run, status).
 - Docker Hub: private or public repository `barlito/ops-mcp`.
 - DNS: `ops.barlito.fr` and `ops-admin.barlito.fr` pointing at the Swarm entry point.
 
@@ -27,13 +31,15 @@ Releases are cut with GitHub Releases and deployed with GitHub Actions. Known ga
 
 - `ADMIN_PROXY_SECRET` (at least 32 chars, `openssl rand -hex 32`): Traefik's `ops-admin-proxy` headers middleware sets `X-Ops-Admin-Proxy` to this value AFTER Authelia, overwriting any client value. The app only believes `Remote-User`/`Remote-Groups` when this header matches and the peer is in `TRUSTED_PROXY`. Without it the admin listener does not start.
 - `ADMIN_WEB_SECRET` (`openssl rand -hex 32`): CSRF key and sealing key of the stored connector keys (so the admin can reveal them again). Rotating it makes existing keys unrevealable (they keep working).
-- Authelia (traefik-base) must satisfy: `authelia-auth@file` lists `Remote-User`, `Remote-Groups` in `authResponseHeaders`; an access rule for host `ops-admin.barlito.fr` (and `ops-admin.local.barlito.fr` locally) restricted to `group:admins`; the session cookie is `authelia_session` (else set the `AUTHELIA_SESSION_COOKIE` variable and redeploy with `re-deploy=true`).
+- Authelia (traefik-base) must satisfy: `authelia-auth@file` lists `Remote-User`, `Remote-Groups` in `authResponseHeaders`; an access rule for host `ops-admin.barlito.fr` (and `ops-admin.local.barlito.fr` locally) restricted to `group:admins`; the session cookie is `authelia_session` (else set the `AUTHELIA_SESSION_COOKIE` secret and redeploy with `re-deploy=true`).
 - Both are delivered to the app as Docker secrets (`/run/secrets/admin_proxy_secret`, `admin_web_secret`, read through `ADMIN_PROXY_SECRET_FILE` / `ADMIN_WEB_SECRET_FILE`). Swarm secrets are immutable: `scripts/ensure-secret.sh` creates `ops_admin_*_secret_<sha1 of the value>` on deploy, so a rotation is: update the GitHub secret and run the Deploy workflow with `re-deploy=true` (an image-only update keeps the old values). Old versions can be removed with `docker secret rm` once unused.
 
 The MCP route has no Authelia on purpose (claude.ai cannot pass it): it is protected by its own login (Bearer token or `x-api-key` connector key), a per-IP failure limiter and the Traefik rate limit.
 
 ## First deploy checklist
 
+- [ ] The observability stack with phase 0 (observability-stack#6) is deployed: ops-mcp joins its external network `obs_query`, otherwise the first `deploy.prod` fails with "network obs_query not found".
+- [ ] Each app service to be tracked carries the label `fr.barlito.repo` (or has a `stack_projects` registry entry), used by phase 6.
 - [ ] GitHub secrets and variables above are set; Docker Hub repo `barlito/ops-mcp` exists.
 - [ ] DNS records and the Authelia access rule exist.
 - [ ] Create the release, then `gh workflow run deploy.yaml --ref vX.Y.Z -f re-deploy=true`.

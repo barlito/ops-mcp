@@ -1,0 +1,14 @@
+tenants:
+  - slug: barlito
+
+servers:
+  - slug: local
+    env: development
+    kind: swarm
+    tenant: barlito
+    source:
+      type: local
+      url: tcp://dockerproxy-ops:2375
+
+stack_projects:
+  obs: observability-stack

@@ -1,0 +1,15 @@
+tenants:
+  - slug: barlito
+
+servers:
+  - slug: ovh-prod-1
+    env: production
+    kind: swarm
+    tenant: barlito
+    source:
+      type: local
+      url: tcp://dockerproxy-ops:2375
+
+# Stacks whose compose project differs from the fr.barlito.repo label.
+stack_projects:
+  obs: observability-stack

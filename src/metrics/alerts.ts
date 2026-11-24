@@ -61,18 +61,21 @@ export interface CollectedAlerts {
   // Sources that answered, and one sentence per source that is missing, failed or sent unusable alerts.
   sources: string[];
   notes: string[];
+  // Neither Prometheus rule groups nor Grafana: an empty alert list then means nothing is watching.
+  noRules: boolean;
 }
 
 const stateRank = (s: string): number => (s === "firing" ? 0 : s === "pending" ? 1 : 2);
 
 // Prometheus is required; Grafana is optional and its failure only costs a note.
-export async function collectAlerts(prom: AlertSource, grafana: AlertSource | undefined, opts?: CallOptions): Promise<CollectedAlerts> {
-  const [fromProm, fromGrafana] = await Promise.allSettled([prom.alerts(opts), grafana ? grafana.alerts(opts) : Promise.resolve([])]);
+export async function collectAlerts(prom: AlertSource & { hasRules(opts?: CallOptions): Promise<boolean> }, grafana: AlertSource | undefined, opts?: CallOptions): Promise<CollectedAlerts> {
+  const [fromProm, fromGrafana, hasRules] = await Promise.allSettled([prom.alerts(opts), grafana ? grafana.alerts(opts) : Promise.resolve([]), grafana ? Promise.resolve(true) : prom.hasRules(opts)]);
   if (fromProm.status === "rejected") throw fromProm.reason;
   const sources = ["prometheus"];
   const notes: string[] = [];
   const raw: Array<[AlertItem["source"], PromAlert]> = fromProm.value.map((a) => ["prometheus", a]);
-  if (!grafana) notes.push("Grafana alerts not included (not configured)");
+  const noRules = hasRules.status === "fulfilled" && !hasRules.value;
+  if (!grafana) notes.push("Grafana alerts not included (Grafana not configured)");
   else if (fromGrafana.status === "rejected") notes.push(`Grafana alerts unavailable: ${redactAll(errorMessage(fromGrafana.reason))}`);
   else {
     sources.push("grafana");
@@ -81,5 +84,6 @@ export async function collectAlerts(prom: AlertSource, grafana: AlertSource | un
   const malformed = raw.filter(([, a]) => !isWellFormed(a)).length;
   if (malformed > 0) notes.push(`${malformed} malformed alert(s) skipped`);
   const alerts = raw.flatMap(([source, a]) => toAlertItem(source, a) ?? []).sort((a, b) => stateRank(a.state) - stateRank(b.state) || a.name.localeCompare(b.name));
-  return { alerts, sources, notes };
+  if (noRules) notes.push("no alert rules configured: Prometheus loads no rule group and Grafana is not configured");
+  return { alerts, sources, notes, noRules };
 }

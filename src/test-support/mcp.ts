@@ -33,6 +33,7 @@ export const fakeProm = (over: Partial<PromApi> = {}): PromApi => ({
   query: async () => [],
   queryRange: async () => [],
   alerts: async () => [],
+  hasRules: async () => true,
   ...over,
 });
 

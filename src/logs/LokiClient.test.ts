@@ -165,3 +165,9 @@ test("withConcurrency never runs more than the allowed requests at once and fini
   assert.equal(results.length, 9);
   assert.equal(peak, 2);
 });
+
+test("a result larger than the body cap is query_rejected", async () => {
+  await withLoki((_req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ status: "success", data: { resultType: "streams", result: [], pad: "x".repeat(5000) } })); }, async (url) => {
+    await assert.rejects(new LokiClient({ url, maxBodyBytes: 1000 }).queryRange(range), (e) => e instanceof ToolError && e.code === "query_rejected" && /too large/.test(e.message));
+  });
+});

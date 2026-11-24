@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { REDACTION_CASES } from "../test-support/redactionCases";
 import { failedImage, filterLabels, parseImage, redactArgs, redactText, sanitizeNode, sanitizeServiceDetail, sanitizeServiceSummary, sanitizeTask, sanitizeUpdate, traefikRoutes } from "./sanitize";
 import { groupStacks, isDegraded } from "./swarm";
 import { FIXTURE_SECRETS, rawFixtures } from "../test-support/dockerStub";
@@ -147,4 +148,12 @@ test("failedImage picks the newest failed task running another image than the cu
 test("a task of an unlisted service or node falls back to short ids", () => {
   const t = sanitizeTask({ ID: "t", ServiceID: "abcdefghijklmnop", NodeID: "zyxwvutsrqponm" }, new Map(), new Map());
   assert.deepEqual([t.service, t.node], ["abcdefghijkl", "zyxwvutsrqpo"]);
+});
+
+test("redactText satisfies the shared redaction table", () => {
+  for (const c of REDACTION_CASES) {
+    const out = redactText(c.input);
+    for (const leak of c.leaks) assert.ok(!out.includes(leak), `${c.input} -> ${out}`);
+    for (const keep of c.keeps ?? []) assert.ok(out.includes(keep), `${c.input} -> ${out}`);
+  }
 });

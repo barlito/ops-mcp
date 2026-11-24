@@ -145,7 +145,7 @@ export function createApp(opts: AppOptions): Express {
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
-      console.error("Error handling MCP request:", err);
+      console.error(`Error handling MCP request: ${redactAll(errorMessage(err))}`);
       if (!res.headersSent) jsonRpcError(res, 500, -32603, "Internal server error");
       cleanup();
     }
@@ -178,7 +178,7 @@ export function createApp(opts: AppOptions): Express {
       code = -32600;
       message = e.message;
     }
-    if (status === 500) console.error("Unhandled request error:", err);
+    if (status === 500) console.error(`Unhandled request error: ${redactAll(errorMessage(err))}`);
     const ctx = res.locals.auth as AuthContext | undefined;
     if (ctx) {
       opts.audit.safeLog({ credentialId: ctx.credentialId, credentialName: ctx.name, tool: "http", result: "error", detail: `${status} ${message}`, clientIp: ctx.clientIp ?? req.ip });

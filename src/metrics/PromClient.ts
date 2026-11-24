@@ -33,6 +33,8 @@ export interface AlertSource {
 }
 
 export interface PromApi extends AlertSource {
+  // Whether Prometheus loads at least one rule group (cached briefly).
+  hasRules(opts?: CallOptions): Promise<boolean>;
   query(promql: string, at: Date, opts?: CallOptions): Promise<PromSample[]>;
   queryRange(promql: string, window: TimeWindow, stepSeconds: number, opts?: CallOptions): Promise<PromSeries[]>;
 }
@@ -45,6 +47,7 @@ interface PromBody {
 }
 
 const MAX_ERROR_CHARS = 300;
+const RULES_TTL_MS = 30_000;
 const finite = (v: unknown): number | undefined => {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
@@ -53,6 +56,7 @@ const asLabels = (v: unknown): Record<string, string> => (v && typeof v === "obj
 
 export class PromClient implements PromApi {
   private readonly limiter: SlotLimiter;
+  private rules: { at: number; value: boolean } | undefined;
   private readonly waiting: Array<() => void> = [];
 
   constructor(
@@ -88,6 +92,13 @@ export class PromClient implements PromApi {
         return n === undefined ? [] : [[t, n]];
       }),
     }));
+  }
+
+  async hasRules(opts?: CallOptions): Promise<boolean> {
+    if (this.rules && Date.now() - this.rules.at < RULES_TTL_MS) return this.rules.value;
+    const data = (await this.request("/api/v1/rules", undefined, opts)) as { groups?: unknown[] };
+    this.rules = { at: Date.now(), value: (data.groups ?? []).length > 0 };
+    return this.rules.value;
   }
 
   async alerts(opts?: CallOptions): Promise<PromAlert[]> {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { withSignal } from "../logs/LokiClient";
 import { fetchEntries } from "../logs/fetch";
+import { redactAll } from "../platform/redact/secrets";
 import { cleanLine } from "../logs/fingerprint";
 import { analyzeLogql } from "../logs/logql";
 import { DAY_MS } from "../logs/patterns";
@@ -28,12 +29,18 @@ const LABEL_CHARS = 200;
 const knownLabels = (labels: Record<string, string>): Record<string, string> =>
   Object.fromEntries(STREAM_LABELS.filter((k) => labels[k] !== undefined).map((k) => [k, cleanLine(labels[k]!, LABEL_CHARS)]));
 
+// A value is masked when its name looks sensitive or when redaction changes `name=value`.
+const maskedValue = (k: string, v: string): string => {
+  const pair = `${k.slice(0, LABEL_CHARS)}=${v.slice(0, LABEL_CHARS * 4)}`;
+  return SENSITIVE_KEY.test(k) || redactAll(pair) !== pair ? "[REDACTED]" : cleanLine(v, LABEL_CHARS);
+};
+
 const metricLabels = (labels: Record<string, string>): Record<string, string> =>
-  Object.fromEntries(Object.entries(labels).map(([k, v]) => [k.slice(0, LABEL_CHARS), SENSITIVE_KEY.test(k) ? "[REDACTED]" : cleanLine(v, LABEL_CHARS)]));
+  Object.fromEntries(Object.entries(labels).map(([k, v]) => [k.slice(0, LABEL_CHARS), maskedValue(k, v)]));
 
 export const opsLogsQueryRaw = defineTool({
   name: "ops_logs_query_raw",
-  description: `Run a raw LogQL query. Log queries (starting with a stream selector) return redacted lines cut to 400 characters over a window capped at 24h; metric queries (rate, count_over_time, sum by...) return at most ${MAX_SERIES} series of ${MAX_POINTS} points over a window capped at 7d. Stream labels: server, deployment_environment, host_name, service_namespace (stack), service_name (full service name), container; detected_level is structured metadata (| detected_level="error"). Log queries return only the known stream labels; metric series labels are masked when their name looks sensitive. Redaction on raw queries is best-effort: line_format, label_format and ranges or offsets above 7d are refused. Prefer ops_logs_summary and ops_logs_query when they fit.`,
+  description: `Run a raw LogQL query. Log queries (starting with a stream selector) return redacted lines cut to 400 characters over a window capped at 24h; metric queries (rate, count_over_time, sum by...) return at most ${MAX_SERIES} series of ${MAX_POINTS} points over a window capped at 7d. Stream labels: server, deployment_environment, host_name, service_namespace (stack), service_name (full service name), container; detected_level is structured metadata (| detected_level="error"). Log queries return only the known stream labels; metric series labels are masked when their name or value looks sensitive, and the regexp and pattern parsers are refused in metric queries. Redaction on raw queries is best-effort: line_format, label_format and ranges or offsets above 7d are refused. Prefer ops_logs_summary and ops_logs_query when they fit.`,
   inputSchema: z.object({
     logql: z.string().min(1).max(MAX_LOGQL_CHARS).describe(`LogQL query, at most ${MAX_LOGQL_CHARS} characters.`),
     since: scopeShape.since,

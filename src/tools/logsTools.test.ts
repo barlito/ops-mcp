@@ -225,12 +225,16 @@ test("ops_logs_query_raw returns only the known stream labels of log lines and m
   assert.deepEqual([labels.password, labels.api_key, labels.user], ["[REDACTED]", "[REDACTED]", "bob"]);
   assert.ok(!JSON.stringify(metric).includes("hunter2") && !JSON.stringify(metric).includes(":pw@"));
   assert.ok(labels.long!.length <= 200);
+
+  loki.queryRange = async () => ({ type: "series", series: [{ labels: { x: `ghp_${"a".repeat(36)}`, y: "token=abc12345", z: "fine" }, points: [[1, "1"]] }] });
+  const neutral = items(await call("ops_logs_query_raw", { logql: 'sum by (x, y, z) (count_over_time({server=~".+"} [5m]))' }))[0]!.labels;
+  assert.deepEqual(neutral, { x: "[REDACTED]", y: "[REDACTED]", z: "fine" });
 });
 
 test("ops_logs_query_raw refuses line_format/label_format and long lookbacks, ignores comments and string contents", async () => {
   const loki = new FakeLoki(lines(2));
   const { call } = await connect([opsLogsQueryRaw], { loki });
-  for (const bad of ['{a="b"} | line_format "{{.x}}"', '{a="b"} | label_format x=y', '{a="b"} # c\n | line_format "x"', 'rate({a="b"}[8d])', 'rate({a="b"}[1d] offset 2w)', 'sum_over_time({a="b"} | unwrap x [14d:1h])']) {
+  for (const bad of ['{a="b"} | line_format "{{.x}}"', '{a="b"} | label_format x=y', '{a="b"} # c\n | line_format "x"', 'rate({a="b"}[8d])', 'rate({a="b"}[1d] offset 2w)', 'sum_over_time({a="b"} | unwrap x [14d:1h])', 'sum by (x) (count_over_time({a="b"} | regexp "token=(?P<x>\\\\S+)" [5m]))', 'sum by (x) (count_over_time({a="b"} | pattern "<_> <x>" [5m]))']) {
     const r = await call("ops_logs_query_raw", { logql: bad });
     assert.match(textOf(r), /invalid_param/, bad);
   }
@@ -241,6 +245,7 @@ test("ops_logs_query_raw refuses line_format/label_format and long lookbacks, ig
   assert.equal(loki.ranges[0]!.query, '\n{server="ovh-prod-1"} |= "line_format [30d] #x"');
   assert.equal(loki.ranges[0]!.end - loki.ranges[0]!.start, BigInt(DAY) * 1_000_000n);
   assert.ok((await call("ops_logs_query_raw", { logql: 'rate({a="b"}[7d])' })).isError !== true);
+  assert.ok((await call("ops_logs_query_raw", { logql: '{a="b"} | regexp "x=(?P<x>\\\\S+)"' })).isError !== true);
 });
 
 test("sampling stops paging when its time budget is spent", async () => {

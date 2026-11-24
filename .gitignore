@@ -9,3 +9,4 @@ data/
 .service-mark
 
 .claude/worktrees/
+integration/metrics/work/

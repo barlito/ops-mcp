@@ -9,8 +9,12 @@ TypeScript, Node 24, Express 5, `@modelcontextprotocol/sdk` (stateless Streamabl
 | Tool | Description |
 |------|-------------|
 | `ops_list_servers` | Servers of the registry (slug, env, kind, tenant) and whether each is reachable |
+| `ops_service_metrics` | CPU, memory vs limit, container starts, network and Traefik req/s, 5xx, p95 of one service (min/max/avg/last + sparkline) |
+| `ops_host_metrics` | Node CPU, load, RAM, disk per mountpoint with days until full, disk I/O |
+| `ops_metrics_query` | Raw PromQL range query (max 7d, 20 series x 60 points) |
+| `ops_alerts` | Active alerts from Prometheus and, if configured, Grafana Alerting |
 
-Swarm state, logs and metrics tools arrive in the next phases. Every tool shares one contract (`src/tools/contract.ts`):
+Swarm state and log tools arrive in the next phases. Every tool shares one contract (`src/tools/contract.ts`):
 
 - Scope parameters: `server`, `stack` (label `service_namespace`), `service` (full Swarm name such as `carapp_php`, label `service_name`), `since` (`15m`, `1h`, `24h`, `7d` or RFC 3339, default `1h`), `until` (RFC 3339, default now).
 - One result envelope: `{ summary, items, truncated, next_cursor?, window, scope }`, as structured content plus one compact text block.
@@ -44,6 +48,13 @@ stack_projects: {obs: observability-stack}   # exceptions to the fr.barlito.repo
 `config/registry.yaml` (prod) and `config/registry.local.yaml` (local) are committed (private repo) and mounted as a Swarm config named `ops_registry_<sha1>`.
 
 Docker API access goes through `dockerproxy-ops` (docker-socket-proxy: read-only endpoints for services, tasks, nodes, info, version; no containers) on an internal overlay network.
+
+## Metrics configuration
+
+- `PROM_URL` (default `http://prometheus:9090`): Prometheus, reached over the external `obs_query` network.
+- `GRAFANA_URL` + `GRAFANA_TOKEN_FILE` (optional): Grafana Alerting alerts in `ops_alerts`. The token (service account, Viewer) is read from a Docker secret file, never from a plain env var. Without them `ops_alerts` returns Prometheus alerts only and says so.
+- Traefik series are matched on the `service` label equal to the Swarm service name or to its stack prefix (`carapp_php` matches `carapp_php@...` and `carapp@...`): Traefik names services after the `traefik.http.services.<name>` label, not after the Swarm service.
+- `make test.integration-metrics` backfills deterministic data into a throwaway Prometheus (compose project `ops-mcp-it-metrics`) and runs the tools against it.
 
 ## Local development
 

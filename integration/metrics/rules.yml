@@ -1,0 +1,11 @@
+groups:
+  - name: it
+    rules:
+      - alert: ItDiskFull
+        expr: vector(1)
+        labels: { severity: critical, server: ovh-prod-1, service_namespace: shop, service_name: shop_web }
+        annotations: { summary: shop_web is failing the integration check }
+      - alert: ItSoon
+        expr: vector(1)
+        for: 1h
+        labels: { severity: warning, server: lab }

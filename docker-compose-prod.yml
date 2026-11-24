@@ -20,6 +20,11 @@ services:
       - PORT=3000
       - DB_PATH=/data/ops.db
       - REGISTRY_PATH=/etc/ops-mcp/registry.yaml
+      # Prometheus on the shared obs_query network (added with the logs phase)
+      - PROM_URL=http://prometheus:9090
+      # Optional Grafana Alerting source: both must be set (token = path of a Docker secret file)
+      - GRAFANA_URL=${GRAFANA_URL:-}
+      - GRAFANA_TOKEN_FILE=${GRAFANA_TOKEN_FILE:-}
       # Shown in the ready-to-paste `claude mcp add` command after credential creation
       - PUBLIC_MCP_URL=https://ops.barlito.fr/mcp
       # Swarm DNS for the Traefik tasks: only they may set X-Forwarded-For.

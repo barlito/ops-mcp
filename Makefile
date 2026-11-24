@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test typecheck build deploy deploy.prod db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
+.PHONY: help install test test.integration-metrics typecheck build deploy deploy.prod db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
 
 stack_name=ops-mcp
 service=ops-mcp
@@ -195,3 +195,16 @@ backup-db: ## Consistent SQLite backup to /data/backups/ops-<UTC timestamp>.db
 prune-audit: ## Delete audit rows older than N days (make prune-audit days=90)
 	@test -n "$(days)" || { echo "days is required (make prune-audit days=90)" >&2; exit 1; }
 	@$(call exec_in_service,node dist/platform/cli/maintenance.js prune-audit --days "$(days)")
+
+# Prometheus is fed by backfilling deterministic OpenMetrics with promtool (exact data, no remote-write
+# client, no wait for scrapes), then started with the remote-write receiver on like the real one.
+IT_METRICS=docker compose -f integration/metrics/compose.yaml
+test.integration-metrics: node_modules ## Run the metrics tools against a real, throwaway Prometheus (compose project ops-mcp-it-metrics)
+	@rm -rf integration/metrics/work; mkdir -p integration/metrics/work
+	$(NODE) npx tsx src/integration/genMetrics.ts integration/metrics/work/data.om
+	@status=0; \
+	{ $(IT_METRICS) --profile backfill run --rm backfill \
+	  && $(IT_METRICS) up -d --wait prometheus \
+	  && docker run --rm -u $(HOST_UID):$(HOST_GID) -e HOME=/tmp/home -e PROM_URL=http://prometheus:9090 --network ops-mcp-it-metrics_default \
+	       -v $(CURDIR):$(CURDIR) -w $(CURDIR) $(NODE_IMAGE) npx tsx --test src/integration/metrics.it.ts; } || status=$$?; \
+	$(IT_METRICS) down -v --remove-orphans; rm -rf integration/metrics/work; exit $$status

@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test test.integration test.integration-metrics typecheck build deploy deploy.prod db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
+.PHONY: help install test test.integration test.integration-metrics typecheck build deploy deploy.prod deploy.update rollback db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
 
 stack_name=ops-mcp
 service=ops-mcp
@@ -83,7 +83,9 @@ deploy: ## Build the image and deploy the stack locally (Swarm)
 	web_name=$$(scripts/ensure-secret.sh ops_admin_web_secret < data/admin-web-secret); \
 	grafana_token=$$(cat data/grafana-token 2>/dev/null || true); \
 	grafana_name=$$(printf %s "$${grafana_token:-unset}" | scripts/ensure-secret.sh ops_grafana_token); \
-	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
+	gh_deployments_token=$$(cat data/gh-deployments-token 2>/dev/null || true); \
+	gh_deployments_name=$$(printf %s "$${gh_deployments_token:-unset}" | scripts/ensure-secret.sh ops_gh_deployments_token); \
+	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name GH_DEPLOYMENTS_TOKEN_SECRET_NAME=$$gh_deployments_name CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
 	  docker compose build && $(call stack_deploy,,)
 	$(MAKE) prune-local-images
 
@@ -103,6 +105,7 @@ endef
 
 # Rolling stack deploy (never `stack rm`: a recreated service has nothing to roll back to).
 # Needs TAG + ADMIN_PROXY_SECRET + ADMIN_WEB_SECRET in the env (turned into Docker secrets); the image must be published.
+# GRAFANA_TOKEN and GH_DEPLOYMENTS_TOKEN are optional (placeholder secret when empty).
 # --detach=false waits for convergence (or Swarm's own rollback).
 deploy.prod: export IMAGE_TAG := $(TAG)
 deploy.prod: ## Deploy the whole prod stack (TAG=<release tag>): backup, stack deploy, assert, smoke, prune
@@ -112,11 +115,36 @@ deploy.prod: ## Deploy the whole prod stack (TAG=<release tag>): backup, stack d
 	proxy_name=$$(printf %s "$$ADMIN_PROXY_SECRET" | scripts/ensure-secret.sh ops_admin_proxy_secret); \
 	web_name=$$(printf %s "$$ADMIN_WEB_SECRET" | scripts/ensure-secret.sh ops_admin_web_secret); \
 	grafana_name=$$(printf %s "$${GRAFANA_TOKEN:-unset}" | scripts/ensure-secret.sh ops_grafana_token); \
-	export ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name CONFIG_VERSION=$$(sha1sum config/registry.yaml | cut -c1-10); \
+	gh_deployments_name=$$(printf %s "$${GH_DEPLOYMENTS_TOKEN:-unset}" | scripts/ensure-secret.sh ops_gh_deployments_token); \
+	export ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name GH_DEPLOYMENTS_TOKEN_SECRET_NAME=$$gh_deployments_name CONFIG_VERSION=$$(sha1sum config/registry.yaml | cut -c1-10); \
 	  $(call stack_deploy,-f docker-compose-prod.yml,--with-registry-auth --detach=false)
 	$(MAKE) deploy.assert_image
 	$(MAKE) smoke.test
 	$(MAKE) deploy.prune
+
+# Image-only rolling update: does not re-render the compose file (env, labels, secrets: use deploy.prod).
+deploy.update: ## Update the service image only (TAG=<release tag>): backup, update, assert, smoke, prune
+	@test -n "$(TAG)" || { echo "TAG is required (TAG=<tag> make deploy.update)" >&2; exit 1; }
+	$(MAKE) db.backup
+	$(MAKE) docker.service.update args="--image $(image_name):$(TAG) $(svc_full)"
+	$(MAKE) deploy.assert_image
+	$(MAKE) smoke.test
+	$(MAKE) deploy.prune
+
+# The safety backup is best effort. A Swarm rollback after scale-to-0 would restore replicas=0,
+# so any failure scales the service back to 1.
+rollback: ## Roll back to an image (TAG=<tag> [RESTORE=ops-<ts>.db] restores that DB backup first)
+	@test -n "$(TAG)" || { echo "TAG is required (TAG=<tag> make rollback)" >&2; exit 1; }
+	@case "$(RESTORE)" in ""|*.db) ;; *) echo "RESTORE must be a backup filename ending in .db" >&2; exit 1;; esac
+	$(MAKE) db.backup || echo "::warning::DB backup failed, rolling back without a fresh safety copy"
+	@trap 'rc=$$?; [ $$rc -eq 0 ] || docker service scale $(svc_full)=1' EXIT; \
+	if [ -n "$(RESTORE)" ]; then \
+	  docker service scale $(svc_full)=0; \
+	  $(MAKE) db.restore TAG=$(TAG) file=$(RESTORE); \
+	fi; \
+	$(MAKE) docker.service.update args="--replicas 1 --image $(image_name):$(TAG) $(svc_full)"; \
+	$(MAKE) deploy.assert_image; \
+	$(MAKE) smoke.test
 
 # Skipped silently when the service has no running task (first deploy).
 # ids= runs as its own command so a docker error aborts the recipe (no pipe, -e is on).

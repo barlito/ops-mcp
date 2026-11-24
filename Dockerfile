@@ -1,0 +1,75 @@
+# Minor frozen, patches float (rebuilt at each release); bumped deliberately.
+FROM node:24.21-alpine AS base
+
+# ────────────────────────────────────────────────────────────────
+# prod-deps stage: production node_modules only. Depends solely on the
+# manifests, so source changes do not invalidate this layer.
+# better-sqlite3 ships N-API prebuilds inside the package (no toolchain).
+# ────────────────────────────────────────────────────────────────
+FROM base AS prod-deps
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts \
+ && keep="linuxmusl-$(node -p process.arch).node" \
+ && find node_modules/better-sqlite3/prebuilds -type f ! -name "$keep" -delete \
+ && rm -rf node_modules/better-sqlite3/deps node_modules/better-sqlite3/src
+
+# ────────────────────────────────────────────────────────────────
+# Builder stage: install all deps and compile TypeScript
+# ────────────────────────────────────────────────────────────────
+FROM base AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+
+COPY tsconfig.json ./
+COPY src ./src
+
+RUN npm run build
+
+# ────────────────────────────────────────────────────────────────
+# Runtime stage: production deps only + compiled output.
+# Read-only friendly: the only writes go to /data (volume) and /tmp (tmpfs).
+# ────────────────────────────────────────────────────────────────
+FROM base AS runtime
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+# Fixed uid/gid so compose (volume/config uid) can reference them.
+RUN addgroup -S -g 10001 appgroup && adduser -S -u 10001 -G appgroup appuser
+
+# tini: PID 1.
+RUN apk add --no-cache tini
+
+# npm/npx/corepack/yarn are not needed at runtime.
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+      /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn*
+
+# App code stays root-owned (world-readable, not writable by appuser).
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./package.json
+
+# Pre-create /data with the right ownership before switching user: Docker would otherwise seed
+# named volumes as root:root on first mount.
+RUN mkdir -p /data && chown appuser:appgroup /data
+
+USER appuser
+
+# Release tag shown in the admin UI (release.yaml passes it); last so it does not bust the cache.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
+EXPOSE 3000
+
+# Probe every 2s during start so Traefik routes to a new task quickly (stop-first rollouts).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --start-interval=2s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:${PORT:-3000}/health >/dev/null || exit 1
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "dist/server.js"]

@@ -1,0 +1,165 @@
+# ────────────────────────────────────────────────────────────────
+# Read-only MCP server to diagnose production without SSH.
+# ────────────────────────────────────────────────────────────────
+#
+# PRODUCTION variant: same `docker stack deploy` flow as local, but with a registry image instead of
+# `build:` (Swarm can't build), the prod registry and the prod domains/TLS.
+#
+# Deployable once an image tagged IMAGE_TAG is published to Docker Hub (`barlito/ops-mcp`, pushed by
+# release.yaml when a GitHub Release is published). Images are referenced by immutable tag:
+# `TAG=<tag> make deploy.prod`.
+# Fixed project name: compose prefixes network names with it, and it would otherwise be the directory name.
+name: ops-mcp
+
+services:
+  ops-mcp:
+    image: barlito/ops-mcp:${IMAGE_TAG:?IMAGE_TAG is required}
+    read_only: true
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_PATH=/data/ops.db
+      - REGISTRY_PATH=/etc/ops-mcp/registry.yaml
+      # Shown in the ready-to-paste `claude mcp add` command after credential creation
+      - PUBLIC_MCP_URL=https://ops.barlito.fr/mcp
+      # Swarm DNS for the Traefik tasks: only they may set X-Forwarded-For.
+      - TRUSTED_PROXY=tasks.traefik_traefik
+      # Web admin UI (behind Authelia): own port, only users in this group
+      - ADMIN_WEB_PORT=3002
+      - ADMIN_GROUP=admins
+      # Authelia session cookie the CSRF tokens are bound to (Authelia's default name)
+      - AUTHELIA_SESSION_COOKIE=${AUTHELIA_SESSION_COOKIE:-authelia_session}
+      # Shared secret Traefik injects (X-Ops-Admin-Proxy) after Authelia, and the CSRF/sealing key: Docker secret files
+      - ADMIN_PROXY_SECRET_FILE=/run/secrets/admin_proxy_secret
+      - ADMIN_WEB_SECRET_FILE=/run/secrets/admin_web_secret
+    # One SQLite file: two tasks must never overlap.
+    stop_grace_period: 30s
+    secrets:
+      - source: admin_proxy_secret
+        target: admin_proxy_secret
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: admin_web_secret
+        target: admin_web_secret
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    configs:
+      - source: ops_registry
+        target: /etc/ops-mcp/registry.yaml
+        mode: 0444
+    volumes:
+      - ops-data:/data
+      - type: tmpfs
+        target: /tmp
+    networks:
+      - traefik_traefik_proxy
+      - ops_docker
+    # Bounded json-file logs (the default driver keeps everything)
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      replicas: 1
+      # The named volume is node-local, and the Makefile's `docker exec`/`docker run -v` targets
+      # (backup, restore, tokens) assume the task runs on the manager DOCKER_HOST points at.
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        order: stop-first
+        failure_action: rollback
+        monitor: 30s
+      restart_policy:
+        condition: any
+        delay: 5s
+      labels:
+        - traefik.enable=true
+
+        - traefik.http.services.ops-mcp.loadbalancer.server.port=3000
+        - traefik.http.services.ops-admin.loadbalancer.server.port=3002
+
+        - traefik.http.routers.ops-mcp.rule=Host(`ops.barlito.fr`)
+        - traefik.http.routers.ops-mcp.service=ops-mcp
+        - traefik.http.routers.ops-mcp.entrypoints=http
+        - traefik.http.routers.ops-mcp.middlewares=redirect-to-https@file
+
+        - traefik.http.routers.ops-mcp-secure.rule=Host(`ops.barlito.fr`)
+        - traefik.http.routers.ops-mcp-secure.service=ops-mcp
+        - traefik.http.routers.ops-mcp-secure.entrypoints=https
+        - traefik.http.routers.ops-mcp-secure.tls=true
+        - traefik.http.routers.ops-mcp-secure.tls.certresolver=letsencrypt
+        # Rate limit sized for a few agents (per source IP)
+        - traefik.http.middlewares.ops-mcp-ratelimit.ratelimit.average=20
+        - traefik.http.middlewares.ops-mcp-ratelimit.ratelimit.burst=40
+        # Own Bearer-token / connector-key login -> no Authelia (claude.ai cannot pass it), just rate limit + security headers
+        - traefik.http.routers.ops-mcp-secure.middlewares=ops-mcp-ratelimit,security-headers@file
+
+        # Web admin UI: Authelia SSO (Remote-User/Remote-Groups), never exposed without it
+        - traefik.http.routers.ops-admin.rule=Host(`ops-admin.barlito.fr`)
+        - traefik.http.routers.ops-admin.service=ops-admin
+        - traefik.http.routers.ops-admin.entrypoints=http
+        - traefik.http.routers.ops-admin.middlewares=redirect-to-https@file
+
+        - traefik.http.routers.ops-admin-secure.rule=Host(`ops-admin.barlito.fr`)
+        - traefik.http.routers.ops-admin-secure.service=ops-admin
+        - traefik.http.routers.ops-admin-secure.entrypoints=https
+        - traefik.http.routers.ops-admin-secure.tls=true
+        - traefik.http.routers.ops-admin-secure.tls.certresolver=letsencrypt
+        # Injected after Authelia (overwrites any client value): proves the request went through Traefik
+        - traefik.http.middlewares.ops-admin-proxy.headers.customrequestheaders.X-Ops-Admin-Proxy=${ADMIN_PROXY_SECRET:?ADMIN_PROXY_SECRET is required (see docs/DEPLOY.md)}
+        - traefik.http.routers.ops-admin-secure.middlewares=ops-mcp-ratelimit,authelia-auth@file,ops-admin-proxy,security-headers@file
+
+  # Read-only Docker API proxy in front of the raw socket: the only service that touches it.
+  # Only the endpoints ops-mcp needs are whitelisted (no CONTAINERS) and every write is refused.
+  dockerproxy-ops:
+    image: ghcr.io/tecnativa/docker-socket-proxy:v0.5.0
+    environment:
+      SERVICES: 1
+      TASKS: 1
+      NODES: 1
+      INFO: 1
+      VERSION: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - ops_docker
+    deploy:
+      replicas: 1
+      update_config:
+        order: stop-first
+      placement:
+        constraints:
+          - node.role == manager
+
+networks:
+  traefik_traefik_proxy:
+    external: true
+  # Nothing but ops-mcp and its proxy: no route out, no route in.
+  ops_docker:
+    driver: overlay
+    internal: true
+
+# Docker secrets (files under /run/secrets): the service environment is readable through the Docker API.
+# Immutable, so the Makefile creates them under a name carrying a hash of the value.
+secrets:
+  admin_proxy_secret:
+    external: true
+    name: ${ADMIN_PROXY_SECRET_NAME:?ADMIN_PROXY_SECRET_NAME is required}
+  admin_web_secret:
+    external: true
+    name: ${ADMIN_WEB_SECRET_NAME:?ADMIN_WEB_SECRET_NAME is required}
+
+configs:
+  # Swarm configs are immutable: the name carries a hash of the content (CONFIG_VERSION, set by the
+  # Makefile), so a changed registry creates a new config and rolls the service.
+  ops_registry:
+    name: ops_registry_${CONFIG_VERSION:?CONFIG_VERSION is required (make deploy.prod computes it)}
+    file: ./config/registry.yaml
+
+volumes:
+  ops-data:

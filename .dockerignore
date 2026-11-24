@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.claude
+.github
+.env
+data/
+npm-debug.log
+*.md
+docs
+scripts
+*.log
+src/**/*.test.ts

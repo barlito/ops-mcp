@@ -2,6 +2,7 @@ import { z } from "zod";
 import { timeOf } from "../cluster/swarm";
 import { linkOf, resolveRepo } from "../github/fuse";
 import { countLines } from "../logs/count";
+import { SAMPLE_LINES } from "../logs/fetch";
 import { levelPatterns } from "../logs/patterns";
 import { withSignal } from "../logs/LokiClient";
 import { eq } from "../metrics/labels";
@@ -16,6 +17,8 @@ const MIN_WINDOW_MS = MINUTE_MS;
 // A Swarm update this close after the GitHub deployment is the rollout of that deployment.
 const ROLLOUT_MS = 30 * MINUTE_MS;
 const TOP_PATTERNS = 3;
+// A pattern seen once is noise, not a new failure mode.
+const MIN_PATTERN_COUNT = 2;
 const FAILED_STATES = new Set(["failed", "rejected"]);
 
 const MetricSchema = z.object({
@@ -85,24 +88,30 @@ export const opsDeployImpact = defineTool({
     if ((args.deploy_id === undefined) === (args.ts === undefined)) throw new ToolError("invalid_arguments", "Give exactly one of deploy_id or ts.");
     const [server] = resolveServers(ctx.registry, args.server);
     const length = args.window === undefined ? DEFAULT_WINDOW_MS : Number(args.window.slice(0, -1)) * (args.window.endsWith("h") ? 60 : 1) * MINUTE_MS;
-    if (length > MAX_WINDOW_MS) throw new ToolError("invalid_window", "window is at most 2h.");
+    if (length > MAX_WINDOW_MS || length < MIN_WINDOW_MS) throw new ToolError("invalid_window", "window must be between 1m and 2h.");
 
     const service = await ctx.cluster(server!).getService(args.service, { signal: ctx.signal });
-    const swarmAt = timeOf(service.updated_at);
+    const swarmAt = timeOf(service.update_status?.started_at ?? service.updated_at);
+    const rollbackState = service.update_status?.state.startsWith("rollback") ?? false;
     let instant: number;
     let version: string | undefined;
+    let rolledBack = false;
     if (args.deploy_id !== undefined) {
       if (!ctx.github) throw new ToolError("backend_unavailable", "GitHub Deployments are not configured: pass ts instead of deploy_id.");
       const repo = resolveRepo(service, ctx.registry);
       if (repo === undefined) throw new ToolError("invalid_arguments", `No repository known for ${args.service} (label fr.barlito.repo or registry stack_projects): pass ts instead of deploy_id.`);
       const deployment = await ctx.github.deployment(repo, args.deploy_id, { signal: ctx.signal });
       const created = Date.parse(deployment.created_at);
-      const rolledOut = swarmAt >= created && swarmAt - created <= ROLLOUT_MS;
+      const related = swarmAt >= created && swarmAt - created <= ROLLOUT_MS;
+      rolledBack = related && rollbackState;
+      const rolledOut = related && !rolledBack;
       instant = rolledOut ? swarmAt : created;
       version = linkOf(deployment, rolledOut ? service.image.tag : undefined).tag;
     } else {
       instant = parseInstant(args.ts!, "ts").getTime();
-      version = Math.abs(swarmAt - instant) <= ROLLOUT_MS ? service.image.tag : undefined;
+      const related = Math.abs(swarmAt - instant) <= ROLLOUT_MS;
+      rolledBack = related && rollbackState;
+      version = related && !rolledBack ? service.image.tag : undefined;
     }
 
     const now = ctx.now().getTime();
@@ -153,7 +162,8 @@ export const opsDeployImpact = defineTool({
     const noTraffic = "no Traefik traffic for this service name";
     const taskCount = (w: TimeWindow): Reading => ({ value: tasks.note ? null : tasks.list.filter((t) => inside(t.at, w)).length });
     const latestError = tasks.list.filter((t) => inside(t.at, after) && t.error).sort((a, b) => b.at - a.at)[0]?.error;
-    const patternNote = "error" in patterns ? `new error patterns unavailable: ${patterns.error}` : undefined;
+    const sampled = "groups" in patterns && patterns.groups.some((gs) => gs.reduce((n, g) => n + g.count, 0) >= SAMPLE_LINES);
+    const patternNote = "error" in patterns ? `new error patterns unavailable: ${patterns.error}` : sampled ? `error patterns sampled from the newest ${SAMPLE_LINES} lines` : undefined;
 
     const metrics: Metric[] = [
       metric("error_logs", "lines", errors[0], errors[1], patternNote),
@@ -167,7 +177,7 @@ export const opsDeployImpact = defineTool({
         ? (() => {
             const known = new Set(patterns.groups[0].map((g) => g.pattern));
             return patterns.groups[1]
-              .filter((g) => !known.has(g.pattern))
+              .filter((g) => !known.has(g.pattern) && g.count >= MIN_PATTERN_COUNT)
               .sort((a, b) => b.count - a.count)
               .slice(0, TOP_PATTERNS)
               .map((g) => ({ kind: "pattern", level: g.level, pattern: g.pattern, count: g.count, example: g.example }));
@@ -187,9 +197,13 @@ export const opsDeployImpact = defineTool({
       newPatterns.length ? `${newPatterns.length} new error pattern${newPatterns.length === 1 ? "" : "s"}` : undefined,
       failedTaskChange.after ? `${failedTaskChange.after} failed task${failedTaskChange.after === 1 ? "" : "s"} after` : undefined,
     ].filter((p): p is string => p !== undefined);
-    const lead = `${args.service}${version ? ` ${version}` : ""}`;
+    const notes = [
+      partial ? `after-window partial: ${Math.round(span / MINUTE_MS)} of ${Math.round(length / MINUTE_MS)} min` : undefined,
+      rolledBack ? `Swarm rolled back to ${service.image.tag ?? "the previous image"}` : undefined,
+    ].filter((n): n is string => n !== undefined);
+    const lead = `${args.service}${version ? ` ${version}` : ""}${notes.length ? ` (${notes.join("; ")})` : ""}`;
     return {
-      summary: `${lead}: ${parts.length ? parts.join(", ") : "no comparable data"}${partial ? ` (after-window partial: ${Math.round(span / MINUTE_MS)} of ${Math.round(length / MINUTE_MS)} min)` : ""}`,
+      summary: `${lead}: ${parts.length ? parts.join(", ") : "no comparable data"}`,
       items: [...metrics, ...newPatterns],
       window: { from: before.from, to: after.to },
       scope,

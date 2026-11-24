@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { anyOf, eq } from "../metrics/labels";
 import { NO_DATA, formatMetric, MAX_WINDOW_MS, metricItem, MetricItemSchema, type MetricItem, minStepSeconds } from "../metrics/series";
-import { clampWindow, defineTool, envelopeSchema, resolveServers, resolveWindow, scopeShape } from "./contract";
+import { clampWindow, nameParam, defineTool, envelopeSchema, resolveServers, resolveWindow, scopeShape } from "./contract";
 
 const inputSchema = z.object({
-  server: z.string().min(1).describe("Server slug (see ops_list_servers)."),
-  service: z.string().min(1).describe("Full Swarm service name, e.g. carapp_php (label service_name)."),
+  server: nameParam.describe("Server slug (see ops_list_servers)."),
+  service: nameParam.describe("Full Swarm service name, e.g. carapp_php (label service_name)."),
   since: scopeShape.since,
   until: scopeShape.until,
 });

@@ -31,7 +31,7 @@ test("returns stats and a sparkline per metric, null with a note when a series i
   assert.match(textOf(r), /^memory_working_set \(MiB\) min=n\/a max=n\/a avg=n\/a last=n\/a \[no data/m);
 });
 
-test("every query is scoped by escaped labels and Traefik is matched on service and stack", async () => {
+test("every query is scoped by label and Traefik is matched on service and stack", async () => {
   const seen: string[] = [];
   const { call } = await connect([opsServiceMetrics], {
     prom: fakeProm({
@@ -39,9 +39,9 @@ test("every query is scoped by escaped labels and Traefik is matched on service 
       query: async (q) => (seen.push(q), []),
     }),
   });
-  await call("ops_service_metrics", { server: "ovh-prod-1", service: 'carapp_php"} or up{a="' });
+  await call("ops_service_metrics", { server: "ovh-prod-1", service: "carapp_php" });
   assert.equal(seen.length, 10);
-  for (const q of seen.filter((q) => !q.includes("traefik"))) assert.match(q, /server="ovh-prod-1",service_name="carapp_php\\"\} or up\{a=\\""/);
+  for (const q of seen.filter((q) => !q.includes("traefik"))) assert.match(q, /server="ovh-prod-1",service_name="carapp_php"/);
   const traefik = seen.filter((q) => q.includes("traefik_service"));
   assert.equal(traefik.length, 4);
   for (const q of traefik) assert.match(q, /service=~"(?:[^"\\]|\\.)*@\.\+"[,}]/, q);
@@ -95,4 +95,11 @@ test("unknown server and missing parameters are errors", async () => {
   const unknown = await call("ops_service_metrics", { server: "nope", service: "a_b" });
   assert.match(textOf(unknown), /unknown_server/);
   assert.ok((await call("ops_service_metrics", { server: "ovh-prod-1" })).isError);
+});
+
+test("a service name that is not a plain name is refused before any query", async () => {
+  let queried = false;
+  const { call } = await connect([opsServiceMetrics], { prom: fakeProm({ queryRange: async () => ((queried = true), []) }) });
+  assert.ok((await call("ops_service_metrics", { server: "ovh-prod-1", service: 'carapp_php"} or up{a="' })).isError);
+  assert.equal(queried, false);
 });

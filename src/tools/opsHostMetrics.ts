@@ -3,11 +3,11 @@ import { eq } from "../metrics/labels";
 import { cpuPct, diskDaysUntilFull, diskUsedPct, ramPct } from "../metrics/nodeQueries";
 import type { PromSeries } from "../metrics/PromClient";
 import { formatMetric, MAX_WINDOW_MS, metricItem, MetricItemSchema, type MetricItem, minStepSeconds, NO_DATA } from "../metrics/series";
-import { clampWindow, defineTool, envelopeSchema, resolveServers, resolveWindow, scopeShape } from "./contract";
+import { clampWindow, nameParam, defineTool, envelopeSchema, resolveServers, resolveWindow, scopeShape } from "./contract";
 
 const inputSchema = z.object({
-  server: z.string().min(1).describe("Server slug (see ops_list_servers)."),
-  host: z.string().min(1).optional().describe("Node hostname (label host_name). Omit for every node of the server."),
+  server: nameParam.describe("Server slug (see ops_list_servers)."),
+  host: nameParam.optional().describe("Node hostname (label host_name). Omit for every node of the server."),
   since: scopeShape.since,
   until: scopeShape.until,
 });

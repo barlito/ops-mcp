@@ -16,7 +16,7 @@ test("disks carry the days until full parsed from predict_linear, null when not 
       query: async (q) => (queries.push(q), [{ labels: { host_name: "h1", mountpoint: "/" }, value: 12.3456 }]),
     }),
   });
-  const r = await call("ops_host_metrics", { server: "ovh-prod-1", host: 'h1"' });
+  const r = await call("ops_host_metrics", { server: "ovh-prod-1", host: "h1" });
   assert.ok(!r.isError);
   const items = r.structuredContent?.items as Item[];
   const disks = items.filter((i) => i.metric === "disk_used");
@@ -24,11 +24,11 @@ test("disks carry the days until full parsed from predict_linear, null when not 
   assert.equal(items.find((i) => i.metric === "load1")?.last, 1.5);
   const cpu = items.find((i) => i.metric === "cpu")!;
   assert.equal(cpu.last, null);
-  assert.equal(cpu.host, 'h1"');
+  assert.equal(cpu.host, "h1");
   assert.match(cpu.note ?? "", /no data/);
   assert.equal(queries.length, 1);
   assert.match(queries[0]!, /predict_linear\(/);
-  assert.match(queries[0]!, /host_name="h1\\""/);
+  assert.match(queries[0]!, /host_name="h1"/);
   assert.match(textOf(r), /h1: \/ disk_used \(%\) .* days_until_full=12.3/);
   assert.match(textOf(r), /days_until_full=none/);
 });
@@ -38,4 +38,11 @@ test("without any series every metric is null with a note and disks have no pred
   const items = (await call("ops_host_metrics", { server: "ovh-prod-1" })).structuredContent?.items as Item[];
   assert.equal(items.length, 9);
   assert.equal(items.find((i) => i.metric === "disk_used")?.days_until_full, undefined);
+});
+
+test("host and service names are plain names: selector injection is refused before any query", async () => {
+  let queried = false;
+  const { call } = await connect([opsHostMetrics], { prom: fakeProm({ queryRange: async () => ((queried = true), []) }) });
+  assert.ok((await call("ops_host_metrics", { server: "ovh-prod-1", host: 'h1"} or up{a="' })).isError);
+  assert.equal(queried, false);
 });

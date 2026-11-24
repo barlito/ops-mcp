@@ -24,7 +24,7 @@ export const opsListStacks = defineTool({
   outputSchema: envelopeSchema(ItemSchema),
   formatItem: (s: Item) => `${s.server} ${s.stack} project=${s.project ?? "-"} services=${s.services} ${s.state}${s.degraded.length ? ` [${s.degraded.join(", ")}]` : ""} images=${s.images.join(",")} updated=${s.last_update}`,
   async handler(args, ctx) {
-    const { ok, failed } = await fanOut(ctx, resolveServers(ctx.registry, args.server), (source) => source.listServices());
+    const { ok, failed } = await fanOut(ctx, resolveServers(ctx.registry, args.server), (source) => source.listServices({}, { signal: ctx.signal }));
     const items: Item[] = ok.flatMap(({ server, value }) =>
       groupStacks(value).map((stack) => {
         const degraded = stack.services.filter(isDegraded).map((s) => `${s.name} ${s.running}/${s.desired}`);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { groupStacks, isDegraded } from "../cluster/swarm";
+import { redactAll } from "../platform/redact/secrets";
 import { errorMessage } from "../platform/util";
 import type { OverviewSection } from "./section";
 
@@ -24,7 +25,7 @@ export const swarmSection: OverviewSection<SwarmPart> = {
       servers.map(async (server): Promise<[string, SwarmPart]> => {
         try {
           const source = ctx.cluster(server);
-          const [nodes, services, tasks] = await Promise.all([source.listNodes(), source.listServices(), source.listTasks({})]);
+          const [nodes, services, tasks] = await Promise.all([source.listNodes({ signal: ctx.signal }), source.listServices({}, { signal: ctx.signal }), source.listTasks({}, { signal: ctx.signal })]);
           const failedTasks = tasks.filter((t) => FAILED_STATES.has(t.state) && Date.parse(t.updated_at) >= window.from.getTime() && Date.parse(t.updated_at) <= window.to.getTime());
           return [
             server.slug,
@@ -42,7 +43,7 @@ export const swarmSection: OverviewSection<SwarmPart> = {
             },
           ];
         } catch (err) {
-          return [server.slug, { error: errorMessage(err) }];
+          return [server.slug, { error: redactAll(errorMessage(err)) }];
         }
       }),
     );

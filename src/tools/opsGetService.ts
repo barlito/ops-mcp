@@ -21,7 +21,7 @@ export const opsGetService = defineTool({
   async handler(args, ctx) {
     const [server] = resolveServers(ctx.registry, args.server);
     const source = ctx.cluster(server!);
-    const [service, tasks] = await Promise.all([source.getService(args.service), source.listTasks({ service: args.service })]);
+    const [service, tasks] = await Promise.all([source.getService(args.service, { signal: ctx.signal }), source.listTasks({ service: args.service }, { signal: ctx.signal })]);
     return {
       summary: `${service.name} ${service.running}/${service.desired} running${service.update_status ? `, last update ${service.update_status.state}` : ""}`,
       items: [{ ...service, server: server!.slug, tasks: tasks.slice(0, MAX_TASKS) }],

@@ -1,4 +1,5 @@
 import type { ClusterSource } from "../cluster/ClusterSource";
+import { redactAll } from "../platform/redact/secrets";
 import { errorMessage } from "../platform/util";
 import type { ServerEntry } from "../registry";
 import { ToolError, type ToolContext } from "./contract";
@@ -29,11 +30,11 @@ export async function fanOut<T>(ctx: ToolContext, servers: ServerEntry[], fn: (s
   const failed: ServerFailure[] = [];
   for (const r of settled) {
     if ("err" in r) {
-      if (servers.length === 1) throw r.err instanceof ToolError ? r.err : new ToolError("server_unreachable", errorMessage(r.err));
-      failed.push({ server: r.server.slug, error: errorMessage(r.err) });
+      if (servers.length === 1) throw r.err instanceof ToolError ? r.err : new ToolError("server_unreachable", redactAll(errorMessage(r.err)));
+      failed.push({ server: r.server.slug, error: redactAll(errorMessage(r.err)) });
     } else ok.push(r);
   }
   return { ok, failed };
 }
 
-export const failureNote = (failed: ServerFailure[]): string => (failed.length === 0 ? "" : `; failed: ${failed.map((f) => `${f.server} (${f.error})`).join(", ")}`);
+export const failureNote = (failed: ServerFailure[]): string => (failed.length === 0 ? "" : `; failed: ${failed.map((f) => f.server).join(", ")}`);

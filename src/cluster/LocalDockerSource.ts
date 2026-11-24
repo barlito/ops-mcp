@@ -1,3 +1,4 @@
+import { redactAll } from "../platform/redact/secrets";
 import { ToolError } from "../tools/contract";
 import type { CallOptions, ClusterInfo, ClusterSource } from "./ClusterSource";
 import { type RawNode, type RawService, type RawTask, sanitizeNode, sanitizeServiceDetail, sanitizeServiceSummary, sanitizeTask, sanitizeUpdate } from "./sanitize";
@@ -31,7 +32,7 @@ export class LocalDockerSource implements ClusterSource {
     } catch (err) {
       const e = err as Error & { cause?: { code?: string } };
       const reason = e.name === "TimeoutError" ? `timeout after ${this.timeoutMs} ms` : (e.cause?.code ?? e.message);
-      throw new ToolError("server_unreachable", `Docker API unreachable: ${reason}`);
+      throw new ToolError("server_unreachable", redactAll(reason));
     }
     if (!res.ok) {
       await res.body?.cancel();

@@ -51,7 +51,7 @@ test("ops_list_stacks resolves the project from the label, then the registry, an
     { server: "ovh-prod-1", stack: "obs", project: "observability-stack", services: 1, state: "running", degraded: [], images: ["grafana/alloy:v1.4.0"], last_update: "2026-04-01T10:00:00.000Z" },
     { server: "ovh-prod-1", stack: "shop", project: "barlito/shop", services: 2, state: "degraded", degraded: ["shop_web 0/1"], images: ["ghcr.io/barlito/shop:1.5.0"], last_update: "2026-06-01T11:42:10.552Z" },
   ]);
-  assert.match(r.structuredContent?.summary as string, /^2 stacks, 1 degraded; failed: lab \(/);
+  assert.match(r.structuredContent?.summary as string, /^2 stacks, 1 degraded; failed: lab$/);
 });
 
 test("ops_list_stacks fails when the only targeted server is down", async () => {

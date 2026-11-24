@@ -24,13 +24,13 @@ export const opsRecentDeploys = defineTool({
   formatItem: (d: Item) => `${d.at} ${d.server} ${d.service} ${d.previous_image ? `${d.previous_image} -> ` : ""}${d.image}${d.state ? ` ${d.state}` : ""}${d.message ? ` "${d.message}"` : ""}`,
   async handler(args, ctx) {
     const window = resolveWindow(args, ctx.now());
-    const { ok, failed } = await fanOut(ctx, resolveServers(ctx.registry, args.server), (source) => source.listServices());
+    const { ok, failed } = await fanOut(ctx, resolveServers(ctx.registry, args.server), (source) => source.listServices({}, { signal: ctx.signal }));
     const recent = ok
       .flatMap(({ server, value }) => value.filter((s) => Date.parse(s.updated_at) >= window.from.getTime() && Date.parse(s.updated_at) <= window.to.getTime()).map((s) => ({ server: server.slug, service: s })))
       .sort((a, b) => b.service.updated_at.localeCompare(a.service.updated_at) || a.service.name.localeCompare(b.service.name));
     const items = await Promise.all(
       recent.slice(0, args.limit).map(async ({ server, service }): Promise<Item> => {
-        const update = await ctx.cluster(ctx.registry.servers.find((s) => s.slug === server)!).serviceUpdateHistory(service.id);
+        const update = await ctx.cluster(ctx.registry.servers.find((s) => s.slug === server)!).serviceUpdateHistory(service.id, { signal: ctx.signal });
         return {
           server,
           service: update.service,

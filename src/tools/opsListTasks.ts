@@ -25,7 +25,7 @@ export const opsListTasks = defineTool({
     if (args.stack === undefined && args.service === undefined) throw new ToolError("invalid_arguments", "Give stack or service.");
     const [server] = resolveServers(ctx.registry, args.server);
     const offset = args.cursor === undefined ? 0 : decodeCursor(args.cursor, CursorSchema).offset;
-    const tasks = await ctx.cluster(server!).listTasks({ stack: args.stack, service: args.service, state: args.state });
+    const tasks = await ctx.cluster(server!).listTasks({ stack: args.stack, service: args.service, state: args.state }, { signal: ctx.signal });
     const items = tasks.slice(offset, offset + args.limit);
     return {
       summary: `${tasks.length} task${tasks.length === 1 ? "" : "s"}${args.state ? ` in state ${args.state}` : ""}, showing ${items.length} from ${offset}`,

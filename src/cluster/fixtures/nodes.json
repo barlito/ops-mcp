@@ -1,0 +1,17 @@
+[
+  {
+    "ID": "node1manager0000000000000a",
+    "Version": { "Index": 9 },
+    "Spec": { "Role": "manager", "Availability": "active", "Labels": { "secret.label": "x" } },
+    "Description": { "Hostname": "ovh-prod-1", "Platform": { "Architecture": "x86_64", "OS": "linux" }, "TLSInfo": { "TrustRoot": "-----BEGIN CERTIFICATE-----\nFAKETRUSTROOT\n-----END CERTIFICATE-----\n", "CertIssuerSubject": "MBMxETAPBgNVBAMTCHN3YXJtLWNh", "CertIssuerPublicKey": "FAKEPUBLICKEY" } },
+    "Status": { "State": "ready", "Addr": "10.0.0.1" },
+    "ManagerStatus": { "Leader": true, "Reachability": "reachable", "Addr": "10.0.0.1:2377" }
+  },
+  {
+    "ID": "node2worker00000000000000b",
+    "Version": { "Index": 11 },
+    "Spec": { "Role": "worker", "Availability": "active" },
+    "Description": { "Hostname": "ovh-prod-2", "TLSInfo": { "TrustRoot": "-----BEGIN CERTIFICATE-----\nFAKETRUSTROOT\n-----END CERTIFICATE-----\n" } },
+    "Status": { "State": "down", "Message": "heartbeat failure", "Addr": "10.0.0.2" }
+  }
+]

@@ -7,6 +7,7 @@ import { createApp } from "./server";
 import { AuthFailureLimiter } from "./platform/http";
 import { RateLimiter } from "./platform/rateLimit";
 import { fakeCluster } from "./test-support/mcp";
+import { TOOLS } from "./tools";
 import { testRegistry, testStores, type TestStores } from "./test-support/fixtures";
 import { createServer } from "node:http";
 
@@ -90,7 +91,7 @@ test("initialize and tools/list work and the server carries instructions", async
   assert.equal(init.result.serverInfo.name, "ops-mcp");
   assert.match(init.result.instructions, /read-only/);
   const list = (await (await post(rpc("tools/list"), headers)).json()) as { result: { tools: Array<{ name: string }> } };
-  assert.ok(list.result.tools.map((t) => t.name).includes("ops_list_servers"));
+  assert.deepEqual(list.result.tools.map((t) => t.name), TOOLS.map((t) => t.name));
 });
 
 test("revoked and expired credentials get 401", async () => {

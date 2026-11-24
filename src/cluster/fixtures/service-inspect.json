@@ -1,0 +1,74 @@
+{
+  "ID": "svc-shop-web",
+  "Version": { "Index": 4821 },
+  "CreatedAt": "2026-05-02T09:14:03.118Z",
+  "UpdatedAt": "2026-06-01T11:42:10.552Z",
+  "Spec": {
+    "Name": "shop_web",
+    "Labels": {
+      "com.docker.stack.image": "ghcr.io/barlito/shop:1.5.0",
+      "com.docker.stack.namespace": "shop",
+      "fr.barlito.repo": "barlito/shop",
+      "traefik.enable": "true",
+      "traefik.http.routers.shop.rule": "Host(`shop.barlito.fr`) || Host(`www.shop.barlito.fr`)",
+      "traefik.http.routers.shop.middlewares": "shop-auth",
+      "traefik.http.middlewares.shop-auth.basicauth.users": "admin:$apr1$fakesalt$fakehash",
+      "traefik.http.middlewares.shop-hdr.headers.customrequestheaders.X-Proxy-Secret": "fake-proxy-secret",
+      "traefik.http.services.shop.loadbalancer.server.port": "8080",
+      "internal.note": "do not leak"
+    },
+    "TaskTemplate": {
+      "ContainerSpec": {
+        "Image": "ghcr.io/barlito/shop:1.5.0@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "Labels": { "com.docker.stack.namespace": "shop" },
+        "Args": ["--port=8080", "--password=fake-cli-password", "--token", "fake-cli-token"],
+        "Env": [
+          "DATABASE_URL=postgresql://app:fake-db-password@db:5432/app",
+          "APP_SECRET=fake-app-secret-for-tests",
+          "SENTRY_DSN=https://fake-sentry-key@o1.ingest.sentry.io/2"
+        ],
+        "Privileges": { "CredentialSpec": null, "SELinuxContext": null },
+        "Secrets": [
+          { "File": { "Name": "db_password", "UID": "0", "GID": "0", "Mode": 292 }, "SecretID": "fake-secret-id", "SecretName": "shop_db_password" }
+        ],
+        "Configs": [
+          { "File": { "Name": "/etc/shop.ini", "UID": "0", "GID": "0", "Mode": 292 }, "ConfigID": "fake-config-id", "ConfigName": "shop_ini_v3" }
+        ],
+        "Isolation": "default"
+      },
+      "Resources": {
+        "Limits": { "NanoCPUs": 500000000, "MemoryBytes": 536870912 },
+        "Reservations": { "MemoryBytes": 134217728 }
+      },
+      "Placement": { "Constraints": ["node.role == worker"], "Platforms": [{ "Architecture": "amd64", "OS": "linux" }] },
+      "Networks": [{ "Target": "net-shop-default-id", "Aliases": ["web"] }],
+      "ForceUpdate": 0,
+      "Runtime": "container"
+    },
+    "Mode": { "Replicated": { "Replicas": 1 } },
+    "UpdateConfig": { "Parallelism": 1, "FailureAction": "rollback", "Order": "start-first" },
+    "EndpointSpec": { "Mode": "vip" }
+  },
+  "PreviousSpec": {
+    "Name": "shop_web",
+    "Labels": { "com.docker.stack.namespace": "shop" },
+    "TaskTemplate": {
+      "ContainerSpec": {
+        "Image": "ghcr.io/barlito/shop:1.4.2@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "Env": ["DATABASE_URL=postgresql://app:fake-db-password@db:5432/app", "APP_SECRET=fake-app-secret-for-tests"]
+      }
+    },
+    "Mode": { "Replicated": { "Replicas": 1 } }
+  },
+  "Endpoint": {
+    "Spec": { "Mode": "vip" },
+    "Ports": [{ "Protocol": "tcp", "TargetPort": 8080, "PublishedPort": 8080, "PublishMode": "ingress" }],
+    "VirtualIPs": [{ "NetworkID": "net-shop-default-id", "Addr": "10.0.1.7/24" }]
+  },
+  "UpdateStatus": {
+    "State": "rollback_completed",
+    "StartedAt": "2026-06-01T11:40:02.001Z",
+    "CompletedAt": "2026-06-01T11:42:10.552Z",
+    "Message": "rollback completed"
+  }
+}

@@ -60,6 +60,11 @@ services:
         uid: "10001"
         gid: "10001"
         mode: 0400
+      - source: gh_deployments_token
+        target: gh_deployments_token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
     configs:
       - source: ops_registry
         target: /etc/ops-mcp/registry.yaml

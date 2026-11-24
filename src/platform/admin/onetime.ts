@@ -1,6 +1,4 @@
 // vendored from second-brain-mcp@d4ba1c5
-// In-memory one-time store: random id, bound to a user, consumed on first take, expires
-// after a TTL, bounded size (oldest evicted). Used for form nonces and flash messages.
 import { randomBytes } from "node:crypto";
 
 export class OneTimeStore<T> {

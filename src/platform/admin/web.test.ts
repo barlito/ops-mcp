@@ -107,10 +107,12 @@ test("security headers: strict CSP, frame, referrer, on every response", async (
 test("pages carry no inline style, inline script or inline event handlers (CSP)", async () => {
   const t = await follow(await post("/tokens", { name: "csp-token", expires_in_days: "30" }));
   const k = await follow(await post("/keys", { name: "csp-key" }, { nonceAction: "/keys" }));
-  stores.audit.log({ credentialId: "c", credentialName: "csp", tool: "ops_list_servers", result: "ok", query: "<script>alert(1)</script>" });
+  stores.audit.log({ credentialId: "c", credentialName: "csp", tool: "ops_list_servers", result: "ok", query: "<script>alert(1)</script>", window: "2026-01-01T00:00:00.000Z/2026-01-01T01:00:00.000Z", detail: "detail-marker" });
   const pages = [(await get("/tokens")).body, (await get("/audit")).body, (await get("/audit?tool=ops_list_servers&credential=csp")).body, (await get("/nope")).body, t.body, k.body];
   assert.match(pages[0]!, /csp-token/);
   assert.match(pages[1]!, /ops_list_servers/);
+  assert.match(pages[1]!, /2026-01-01T00:00:00.000Z\/2026-01-01T01:00:00.000Z/);
+  assert.match(pages[1]!, /detail-marker/);
   assert.match(pages[1]!, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   for (const body of pages) {
     assert.ok(body.length > 200);

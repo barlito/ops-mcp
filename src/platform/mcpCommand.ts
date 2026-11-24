@@ -1,6 +1,4 @@
 // vendored from second-brain-mcp@d4ba1c5
-// Ready-to-paste `claude mcp add` command shown once after a credential is created (CLI and web).
-// The command embeds the secret: callers print/render it and never log or persist it.
 
 export const DEFAULT_MCP_URL = "https://ops.barlito.fr/mcp";
 

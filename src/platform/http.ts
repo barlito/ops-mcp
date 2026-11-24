@@ -3,7 +3,8 @@ import dns from "node:dns";
 import type { Server } from "node:http";
 import net from "node:net";
 import type { Response } from "express";
-import { errorMessage, redact } from "./util";
+import { errorMessage } from "./util";
+import { redactAll } from "./redact/secrets";
 
 export function jsonRpcError(res: Response, status: number, code: number, message: string): void {
   res.status(status).json({ jsonrpc: "2.0", error: { code, message }, id: null });
@@ -20,10 +21,11 @@ export class Lifecycle {
     return this.inflight;
   }
 
-  enter(res: Response): void {
+  // Returns the idempotent function that ends the tracked unit of work.
+  track(): () => void {
     this.inflight++;
     let left = false;
-    const leave = (): void => {
+    return () => {
       if (left) return;
       left = true;
       if (--this.inflight === 0) {
@@ -32,6 +34,10 @@ export class Lifecycle {
         for (const w of waiters) w();
       }
     };
+  }
+
+  enter(res: Response): void {
+    const leave = this.track();
     res.once("finish", leave);
     res.once("close", leave);
   }
@@ -93,7 +99,7 @@ export function createTrustedProxy(spec: string | undefined, resolve: Resolver =
           resolved.set(h, await resolve(h));
         } catch (err) {
           // Keep the last good answer for this host.
-          console.error(`TRUSTED_PROXY: cannot resolve ${h}: ${redact(errorMessage(err))}`);
+          console.error(`TRUSTED_PROXY: cannot resolve ${h}: ${redactAll(errorMessage(err))}`);
         }
       }),
     );

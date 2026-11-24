@@ -10,7 +10,6 @@ import { parseRegistry, type Registry } from "../registry";
 
 const dirs: string[] = [];
 
-/** New tracked temp dir; removed by cleanup(). */
 export function tmp(prefix: string): string {
   const d = mkdtempSync(join(tmpdir(), `ops-${prefix}-`));
   dirs.push(d);

@@ -1,4 +1,4 @@
-import type { ClusterInfo, ClusterSource } from "./ClusterSource";
+import type { CallOptions, ClusterInfo, ClusterSource } from "./ClusterSource";
 
 const TIMEOUT_MS = 3000;
 
@@ -13,16 +13,20 @@ export class LocalDockerSource implements ClusterSource {
     this.base = url.replace(/^tcp:\/\//, "http://");
   }
 
-  private async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.base}${path}`, { signal: AbortSignal.timeout(this.timeoutMs) });
-    if (!res.ok) throw new Error(`${path} answered HTTP ${res.status}`);
+  private async get<T>(path: string, signal?: AbortSignal): Promise<T> {
+    const timeout = AbortSignal.timeout(this.timeoutMs);
+    const res = await fetch(`${this.base}${path}`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw new Error(`${path} answered HTTP ${res.status}`);
+    }
     return (await res.json()) as T;
   }
 
-  async info(): Promise<ClusterInfo> {
+  async info(opts: CallOptions = {}): Promise<ClusterInfo> {
     try {
-      const version = await this.get<{ Version?: string }>("/version");
-      const info = await this.get<{ Swarm?: { LocalNodeState?: string } }>("/info");
+      const version = await this.get<{ Version?: string }>("/version", opts.signal);
+      const info = await this.get<{ Swarm?: { LocalNodeState?: string } }>("/info", opts.signal);
       return { reachable: true, dockerVersion: version.Version, swarm: info.Swarm?.LocalNodeState === "active" };
     } catch (err) {
       const e = err as Error & { cause?: { code?: string } };

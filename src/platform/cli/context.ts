@@ -1,5 +1,4 @@
 // vendored from second-brain-mcp@d4ba1c5
-// Shared by the CLIs: they open the same SQLite file as the running server (WAL, safe concurrently).
 import { AuditLog } from "../audit";
 import { ConnectorKeyStore } from "../auth/connectorKeys";
 import { TokenStore } from "../auth/tokens";

@@ -2,7 +2,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { createApp, MAX_JSONRPC_BATCH } from "./server";
+import { createApp } from "./server";
 import { AuthFailureLimiter } from "./platform/http";
 import { RateLimiter } from "./platform/rateLimit";
 import { fakeCluster } from "./test-support/mcp";
@@ -107,13 +107,20 @@ test("revoked and expired credentials get 401", async () => {
 });
 
 test("tool calls are audited with the calling credential, auth failures without one", async () => {
-  await callListServers({ authorization: `Bearer ${bearer}` });
-  const row = stores.db.prepare("SELECT * FROM audit_log WHERE tool = 'ops_list_servers' ORDER BY id DESC LIMIT 1").get() as Record<string, unknown>;
-  assert.equal(row.credential_name, "script");
-  assert.equal(row.result, "ok");
-  const fail = stores.db.prepare("SELECT * FROM audit_log WHERE tool = 'auth' ORDER BY id DESC LIMIT 1").get() as Record<string, unknown>;
+  const s = testStores();
+  const t = s.tokens.create("script");
+  await withApp({ ...s, tools: toolsOf(s) }, async (url) => {
+    const go = (authorization: string) => fetch(url, { method: "POST", headers: { ...HEADERS, authorization }, body: JSON.stringify(rpc("tools/call", { name: "ops_list_servers", arguments: {} })) });
+    await go("Bearer ops_wrong");
+    await go(`Bearer ${t.token}`);
+  });
+  const rows = s.db.prepare("SELECT * FROM audit_log ORDER BY id").all() as Array<Record<string, unknown>>;
+  const fail = rows.find((r) => r.tool === "auth")!;
   assert.equal(fail.credential_id, null);
   assert.equal(fail.result, "denied");
+  const call = rows.find((r) => r.tool === "ops_list_servers")!;
+  assert.equal(call.credential_name, "script");
+  assert.equal(call.result, "ok");
 });
 
 test("GET and DELETE on /mcp are refused (stateless)", async () => {
@@ -122,10 +129,13 @@ test("GET and DELETE on /mcp are refused (stateless)", async () => {
   assert.equal((await fetch(`${base}/mcp`, { method: "DELETE", headers })).status, 405);
 });
 
-test("oversized JSON-RPC batches and invalid JSON are refused", async () => {
+test("JSON-RPC batches and invalid JSON are refused", async () => {
   const headers = { authorization: `Bearer ${bearer}` };
-  const batch = Array.from({ length: MAX_JSONRPC_BATCH + 1 }, (_, i) => rpc("tools/list", {}, i + 1));
-  assert.equal((await post(batch, headers)).status, 400);
+  for (const batch of [[rpc("tools/list")], [rpc("tools/list", {}, 1), rpc("tools/list", {}, 2)], []]) {
+    const r = await post(batch, headers);
+    assert.equal(r.status, 400);
+    assert.match(((await r.json()) as { error: { message: string } }).error.message, /batches are not supported/);
+  }
   const bad = await fetch(`${base}/mcp`, { method: "POST", headers: { ...HEADERS, ...headers }, body: "{nope" });
   assert.equal(bad.status, 400);
 });
@@ -142,11 +152,16 @@ test("repeated failures from one client end in 429, but valid credentials still 
   });
 });
 
-test("per-credential rate limit answers 429", async () => {
+test("per-credential call rate limit is enforced per tool call and audited", async () => {
   const s = testStores();
   const t = s.tokens.create("limited");
   await withApp({ ...s, tools: toolsOf(s), callLimiter: new RateLimiter(2, 60_000) }, async (url) => {
-    const go = () => fetch(url, { method: "POST", headers: { ...HEADERS, authorization: `Bearer ${t.token}` }, body: JSON.stringify(rpc("tools/list")) }).then((r) => r.status);
-    assert.deepEqual([await go(), await go(), await go()], [200, 200, 429]);
+    const go = async () => ((await (await fetch(url, { method: "POST", headers: { ...HEADERS, authorization: `Bearer ${t.token}` }, body: JSON.stringify(rpc("tools/call", { name: "ops_list_servers", arguments: {} })) })).json()) as { result: { isError?: boolean; content: Array<{ text: string }> } }).result;
+    assert.ok(!(await go()).isError);
+    assert.ok(!(await go()).isError);
+    const third = await go();
+    assert.equal(third.isError, true);
+    assert.match(third.content[0]!.text, /rate_limited/);
+    assert.equal((s.db.prepare("SELECT result FROM audit_log ORDER BY id DESC LIMIT 1").get() as { result: string }).result, "rate_limited");
   });
 });

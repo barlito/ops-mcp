@@ -1,6 +1,7 @@
 // vendored from second-brain-mcp@d4ba1c5
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { REDACTION_CASES } from "../../test-support/redactionCases";
 import { findSecret, redactAll, redactSecrets } from "./secrets";
 
 const b64 = (n: number): string => "Ab3_-".repeat(Math.ceil(n / 5)).slice(0, n);
@@ -124,10 +125,24 @@ test("redaction stays linear on 64 KB adversarial inputs", () => {
     "bearer ".repeat(n / 7),
     "Authorization: ".repeat(n / 15),
     '"password": "'.repeat(n / 13),
+    "Cookie: ".repeat(n / 8),
+    "auth_".repeat(n / 5),
+    "DB_PASS_pass".repeat(n / 12),
+    "session=".repeat(n / 8),
     "x".repeat(n),
   ];
   const t = performance.now();
   for (const input of inputs) redactAll(input);
   const ms = performance.now() - t;
   assert.ok(ms < 50, `took ${ms.toFixed(0)} ms`);
+});
+
+test("redactAll and redactSecrets satisfy the shared redaction table", () => {
+  for (const c of REDACTION_CASES) {
+    for (const fn of [redactAll, redactSecrets]) {
+      const out = fn(c.input);
+      for (const leak of c.leaks) assert.ok(!out.includes(leak), `${c.input} -> ${out}`);
+      for (const keep of c.keeps ?? []) assert.ok(out.includes(keep), `${c.input} -> ${out}`);
+    }
+  }
 });

@@ -2,8 +2,7 @@ import { z } from "zod";
 import { OVERVIEW_SECTIONS } from "../overview";
 import type { OverviewSection } from "../overview/section";
 import { swarmSection } from "../overview/swarmSection";
-import { redactAll } from "../platform/redact/secrets";
-import { errorMessage } from "../platform/util";
+import { safeMessage } from "./fanOut";
 import { defineTool, envelopeSchema, resolveServers, resolveWindow, scopeShape, type ToolDefinition } from "./contract";
 
 const ItemSchema = z.object({
@@ -34,7 +33,7 @@ export function overviewTool(sections: OverviewSection<any>[]): ToolDefinition {
           try {
             return { section, parts: await section.collect(ctx, servers, window) };
           } catch (err) {
-            return { section, error: redactAll(errorMessage(err)) };
+            return { section, error: safeMessage(err) };
           }
         }),
       );

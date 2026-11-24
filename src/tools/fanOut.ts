@@ -1,8 +1,13 @@
 import type { ClusterSource } from "../cluster/ClusterSource";
+import { UnsupportedSourceError } from "../cluster/ClusterSource";
 import { redactAll } from "../platform/redact/secrets";
-import { errorMessage } from "../platform/util";
 import type { ServerEntry } from "../registry";
 import { ToolError, type ToolContext } from "./contract";
+
+// Only errors we raised ourselves carry a message fit for the client; anything else may hold upstream text.
+export function safeMessage(err: unknown): string {
+  return err instanceof ToolError || err instanceof UnsupportedSourceError ? redactAll(err.message) : "cluster source failed";
+}
 
 export interface ServerFailure {
   server: string;
@@ -30,8 +35,8 @@ export async function fanOut<T>(ctx: ToolContext, servers: ServerEntry[], fn: (s
   const failed: ServerFailure[] = [];
   for (const r of settled) {
     if ("err" in r) {
-      if (servers.length === 1) throw r.err instanceof ToolError ? r.err : new ToolError("server_unreachable", redactAll(errorMessage(r.err)));
-      failed.push({ server: r.server.slug, error: redactAll(errorMessage(r.err)) });
+      if (servers.length === 1) throw r.err instanceof ToolError ? r.err : new ToolError("server_unreachable", safeMessage(r.err));
+      failed.push({ server: r.server.slug, error: safeMessage(r.err) });
     } else ok.push(r);
   }
   return { ok, failed };

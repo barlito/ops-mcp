@@ -1,5 +1,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { ToolError } from "../tools/contract";
 import { startDockerStub } from "../test-support/dockerStub";
 import { LocalDockerSource } from "./LocalDockerSource";
@@ -56,9 +58,40 @@ test("an unknown service is not_found", async () => {
   await rejectsWith(source.listTasks({ service: "nope" }), "not_found");
 });
 
-test("serviceUpdateHistory gives the image before and after", async () => {
+test("after an automatic rollback the failed image comes from the failed tasks", async () => {
   const u = await source.serviceUpdateHistory("shop_web");
-  assert.deepEqual([u.image.tag, u.previous_image?.tag, u.update_status?.state], ["1.5.0", "1.4.2", "rollback_completed"]);
+  assert.deepEqual([u.image.tag, u.previous_image, u.failed_image?.tag, u.update_status?.state], ["1.4.2", undefined, "1.5.0", "rollback_completed"]);
+});
+
+test("a plain update reports the image before from PreviousSpec and no failed image", async () => {
+  const u = await source.serviceUpdateHistory("shop_worker");
+  assert.deepEqual([u.image.tag, u.previous_image?.tag, u.failed_image, u.update_status?.state], ["1.5.0", "1.4.9", undefined, "completed"]);
+});
+
+test("service references that could escape the endpoint are refused before any request", async () => {
+  const before = stub.requests.length;
+  for (const ref of ["..", ".", "a/b", "a/../../info", "a".repeat(129), ""]) {
+    await rejectsWith(source.getService(ref), "invalid_arguments");
+    await rejectsWith(source.serviceUpdateHistory(ref), "invalid_arguments");
+  }
+  assert.equal(stub.requests.length, before);
+});
+
+test("redirects are never followed", async () => {
+  const redirecting = new LocalDockerSource(stub.url.replace("tcp://", "http://") + "/redirect");
+  await rejectsWith(redirecting.listNodes(), "server_unreachable");
+  assert.ok(!stub.requests.includes("/nodes") || stub.requests.indexOf("/nodes") < stub.requests.indexOf("/redirect/nodes"));
+});
+
+test("an invalid JSON body is server_unreachable and never echoed", async () => {
+  const bad = createServer((_req, res) => void res.end("<html>secret excerpt</html>"));
+  await new Promise<void>((r) => bad.listen(0, "127.0.0.1", r));
+  try {
+    const src = new LocalDockerSource(`tcp://127.0.0.1:${(bad.address() as AddressInfo).port}`);
+    await assert.rejects(src.listNodes(), (e: unknown) => e instanceof ToolError && e.code === "server_unreachable" && e.message === "invalid JSON response");
+  } finally {
+    await new Promise<void>((r) => bad.close(() => r()));
+  }
 });
 
 test("listTasks scopes by the service ids of the stack and sorts newest first", async () => {

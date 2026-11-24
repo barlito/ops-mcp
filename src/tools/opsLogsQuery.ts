@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withSignal } from "../logs/LokiClient";
 import { fetchEntries } from "../logs/fetch";
 import { cleanLine } from "../logs/fingerprint";
 import { DAY_MS } from "../logs/patterns";
@@ -26,6 +27,7 @@ export const opsLogsQuery = defineTool({
   outputSchema: envelopeSchema(ItemSchema),
   formatItem: (i: Item) => `${i.ts} ${i.server} ${i.service} ${i.level}: ${i.line}`,
   async handler(args, ctx) {
+    const loki = withSignal(ctx.loki, ctx.signal);
     resolveServers(ctx.registry, args.server);
     const window = clampWindow(resolveWindow(args, ctx.now()), DAY_MS);
     const query = logQuery(selector(args), lineFilters(args), args.level ? levelFilter([args.level]) : undefined);
@@ -36,7 +38,7 @@ export const opsLogsQuery = defineTool({
       if (args.direction === "backward") end = after;
       else start = after + 1n;
     }
-    const found = await fetchEntries(ctx.loki, { query, start, end, limit: args.limit + 1, direction: args.direction });
+    const found = await fetchEntries(loki, { query, start, end, limit: args.limit + 1, direction: args.direction });
     const page = found.slice(0, args.limit);
     const items: Item[] = page.map((e) => ({ ts: isoNs(e.ns), server: e.server, service: e.service, level: e.level, line: cleanLine(e.line) }));
     return {

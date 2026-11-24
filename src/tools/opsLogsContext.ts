@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withSignal } from "../logs/LokiClient";
 import { fetchEntries } from "../logs/fetch";
 import { cleanLine } from "../logs/fingerprint";
 import { quote } from "../logs/selector";
@@ -25,12 +26,13 @@ export const opsLogsContext = defineTool({
   outputSchema: envelopeSchema(ItemSchema),
   formatItem: (i: Item) => `${i.ts} ${i.level}: ${i.line}`,
   async handler(args, ctx) {
+    const loki = withSignal(ctx.loki, ctx.signal);
     resolveServers(ctx.registry, args.server);
     const at = parseNs(args.ts);
     const query = `{server=${quote(args.server, "server")}, service_name=${quote(args.service, "service")}}`;
     const [before, after] = await Promise.all([
-      args.before === 0 ? [] : fetchEntries(ctx.loki, { query, start: at - DAY_NS, end: at, limit: args.before, direction: "backward" }),
-      fetchEntries(ctx.loki, { query, start: at, end: at + DAY_NS, limit: args.after + 1, direction: "forward" }),
+      args.before === 0 ? [] : fetchEntries(loki, { query, start: at - DAY_NS, end: at, limit: args.before, direction: "backward" }),
+      fetchEntries(loki, { query, start: at, end: at + DAY_NS, limit: args.after + 1, direction: "forward" }),
     ]);
     const items: Item[] = [...before.reverse(), ...after].map((e) => ({ ts: isoNs(e.ns), level: e.level, line: cleanLine(e.line) }));
     return {

@@ -24,10 +24,10 @@ const env = (r: { structuredContent?: unknown }) => r.structuredContent as { ite
 test("ops_logs_query clamps the window to 24h and builds an escaped selector", async () => {
   const loki = new FakeLoki(lines(3));
   const { call } = await connect([opsLogsQuery], { loki });
-  const r = await call("ops_logs_query", { server: "ovh-prod-1", service: 'x"} or {a="b', since: "7d", contains: 'a"b', level: "error" });
+  const r = await call("ops_logs_query", { server: "ovh-prod-1", service: "carapp_php", since: "7d", contains: 'a"b\\', level: "error" });
   assert.ok(!r.isError, textOf(r));
   const q = loki.ranges[0]!;
-  assert.equal(q.query, '{server="ovh-prod-1", service_name="x\\"} or {a=\\"b"} |= "a\\"b" | detected_level=~"error"');
+  assert.equal(q.query, '{server="ovh-prod-1", service_name="carapp_php"} |= "a\\"b\\\\" | detected_level=~"error"');
   assert.equal(q.end - q.start, BigInt(DAY) * 1_000_000n);
   assert.match(env(r).summary, /window capped at 24h/);
 });
@@ -65,7 +65,8 @@ test("ops_logs_query: unknown server, bad cursor and control characters are reje
   const { call } = await connect([opsLogsQuery], { loki: new FakeLoki() });
   assert.match(textOf(await call("ops_logs_query", { server: "nope" })), /unknown_server/);
   assert.match(textOf(await call("ops_logs_query", { cursor: "!!" })), /invalid_cursor/);
-  assert.match(textOf(await call("ops_logs_query", { service: "a\u0000b" })), /invalid_param/);
+  assert.match(textOf(await call("ops_logs_query", { service: 'a"} or {x="y' })), /plain name/);
+  assert.match(textOf(await call("ops_logs_query", { contains: "a\u0000b" })), /invalid_param/);
   assert.match(textOf(await call("ops_logs_query", { regex: "(?=x)" })), /invalid_param/);
 });
 
@@ -147,7 +148,7 @@ test("ops_logs_query_raw rejects queries over 2000 characters", async () => {
 test("logs overview section: top error patterns per server, errors degrade to a note", async () => {
   const loki = new FakeLoki(lines(6, (i) => `level=error db down after ${i}s`));
   const { deps } = await connect([], { loki });
-  const ctx = { ...deps, auth: { credentialId: "c", name: "n", kind: "token" as const, clientIp: "x" }, now: () => new Date(NOW) };
+  const ctx = { ...deps, signal: new AbortController().signal, auth: { credentialId: "c", name: "n", kind: "token" as const, clientIp: "x" }, now: () => new Date(NOW) };
   const servers = testRegistry().servers;
   const parts = await logsSection.collect(ctx, servers, { from: new Date(NOW - HOUR), to: new Date(NOW) });
   assert.deepEqual(parts.get("ovh-prod-1")!.patterns.map((p) => [p.service, p.count, p.pattern]), [["carapp_php", 6, "level=error db down after <n>s"]]);

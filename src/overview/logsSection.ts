@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withSignal } from "../logs/LokiClient";
 import { DAY_MS, levelPatterns, topPatterns } from "../logs/patterns";
 import { clampWindow, ToolError } from "../tools/contract";
 import type { OverviewSection } from "./section";
@@ -15,11 +16,12 @@ export const logsSection: OverviewSection<Part> = {
   name: "logs",
   partSchema: PartSchema,
   async collect(ctx, servers, window) {
+    const loki = withSignal(ctx.loki, ctx.signal);
     const sampleWindow = clampWindow(window, DAY_MS);
     const entries = await Promise.all(
       servers.map(async (s): Promise<[string, Part]> => {
         try {
-          const groups = await levelPatterns(ctx.loki, { server: s.slug }, "error", sampleWindow);
+          const groups = await levelPatterns(loki, { server: s.slug }, "error", sampleWindow);
           return [s.slug, { patterns: topPatterns(groups, TOP).map((g) => ({ service: g.service, level: g.level, count: g.count, pattern: g.pattern })) }];
         } catch (err) {
           if (!(err instanceof ToolError)) throw err;

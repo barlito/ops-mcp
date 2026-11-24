@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { SlotLimiter } from "../platform/slotLimiter";
-import { redactSecrets } from "../platform/redact/secrets";
-import { redact } from "../platform/util";
+import { redactAll } from "../platform/redact/secrets";
 import { ToolError } from "../tools/contract";
 
 const DEFAULT_URL = "http://loki:3100";
@@ -45,6 +44,12 @@ export interface LokiApi {
   queryRange(params: RangeParams, opts?: CallOptions): Promise<LokiData>;
   query(params: InstantParams, opts?: CallOptions): Promise<LokiData>;
 }
+
+// The same client with every call tied to one abort signal (the tool call's).
+export const withSignal = (loki: LokiApi, signal: AbortSignal): LokiApi => ({
+  queryRange: (p, opts) => loki.queryRange(p, { signal, ...opts }),
+  query: (p, opts) => loki.query(p, { signal, ...opts }),
+});
 
 const labelsSchema = z.record(z.string(), z.string());
 const responseSchema = z.object({
@@ -101,7 +106,7 @@ export class LokiClient implements LokiApi {
   }
 }
 
-const clean = (text: string): string => redactSecrets(redact(text)).slice(0, MAX_ERROR_CHARS).trim();
+const clean = (text: string): string => redactAll(text).slice(0, MAX_ERROR_CHARS).trim();
 
 function parse(body: string): LokiData {
   let json: unknown;

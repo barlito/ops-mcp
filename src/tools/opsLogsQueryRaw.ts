@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withSignal } from "../logs/LokiClient";
 import { fetchEntries } from "../logs/fetch";
 import { cleanLine } from "../logs/fingerprint";
 import { DAY_MS } from "../logs/patterns";
@@ -32,6 +33,7 @@ export const opsLogsQueryRaw = defineTool({
   outputSchema: envelopeSchema(ItemSchema),
   formatItem: (i: Item) => (i.kind === "line" ? `${i.ts} ${JSON.stringify(i.labels)}: ${i.line}` : `${JSON.stringify(i.labels)} ${JSON.stringify(i.points)}`),
   async handler(args, ctx) {
+    const loki = withSignal(ctx.loki, ctx.signal);
     const logQuery = isLogQuery(args.logql);
     const window = clampWindow(resolveWindow(args, ctx.now()), logQuery ? DAY_MS : 7 * DAY_MS);
     const note = window.clamped ? ` (window capped at ${logQuery ? "24h" : "7d"})` : "";
@@ -39,7 +41,7 @@ export const opsLogsQueryRaw = defineTool({
     const end = toNs(window.to);
 
     if (logQuery) {
-      const data = await ctx.loki.queryRange({ query: args.logql, start, end, limit: args.limit + 1, direction: "backward" });
+      const data = await loki.queryRange({ query: args.logql, start, end, limit: args.limit + 1, direction: "backward" });
       if (data.type !== "streams") return { summary: "no lines", items: [], window };
       const lines = data.streams.flatMap((s) => s.values.map(([ns, line]) => ({ ns, labels: s.labels, line }))).sort((a, b) => (a.ns === b.ns ? 0 : a.ns < b.ns ? 1 : -1));
       const items: Item[] = lines.slice(0, args.limit).map((l) => ({ kind: "line", labels: l.labels, ts: isoNs(l.ns), line: cleanLine(l.line) }));
@@ -47,7 +49,7 @@ export const opsLogsQueryRaw = defineTool({
     }
 
     const step = Math.max(1, Math.ceil((window.to.getTime() - window.from.getTime()) / 1000 / MAX_POINTS));
-    const data = await ctx.loki.queryRange({ query: args.logql, start, end, step });
+    const data = await loki.queryRange({ query: args.logql, start, end, step });
     if (data.type !== "series") return { summary: "the query returned log lines, not metrics", items: [], window };
     const items: Item[] = data.series.slice(0, MAX_SERIES).map((s) => ({ kind: "series", labels: s.labels, points: s.points.slice(-MAX_POINTS) }));
     return { summary: `${items.length} series, step ${step}s${note}`, items, truncated: data.series.length > MAX_SERIES, window };

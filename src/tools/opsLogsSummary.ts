@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type LokiApi } from "../logs/LokiClient";
+import { type LokiApi, withSignal } from "../logs/LokiClient";
 import { DAY_MS, levelPatterns, topPatterns } from "../logs/patterns";
 import { LEVELS, levelFilter, levelsFrom, logQuery, selector } from "../logs/selector";
 import { isoNs, toNs } from "../logs/time";
@@ -47,11 +47,12 @@ export const opsLogsSummary = defineTool({
       ? `${i.server} ${i.service} ${i.level} x${i.count}`
       : `PATTERN ${i.server} ${i.service} ${i.level} x${i.count} ${i.first_seen}..${i.last_seen} ${i.pattern} | e.g. ${i.example}`,
   async handler(args, ctx) {
+    const loki = withSignal(ctx.loki, ctx.signal);
     resolveServers(ctx.registry, args.server);
     const window = clampWindow(resolveWindow(args, ctx.now()), WEEK_MS);
     const sampleWindow = clampWindow(window, DAY_MS);
     const levels = levelsFrom(args.level_min);
-    const [counts, groups] = await Promise.all([countRows(ctx.loki, args, levels, window.from, window.to), levelPatterns(ctx.loki, args, args.level_min, sampleWindow)]);
+    const [counts, groups] = await Promise.all([countRows(loki, args, levels, window.from, window.to), levelPatterns(loki, args, args.level_min, sampleWindow)]);
 
     const patterns: Item[] = topPatterns(groups, args.top).map((g) => ({
       kind: "pattern",

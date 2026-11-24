@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { Scope } from "../tools/contract";
-import type { AlertSource, PromAlert } from "./PromClient";
-import { errorMessage, redact } from "../platform/util";
+import type { AlertSource, CallOptions, PromAlert } from "./PromClient";
+import { redactAll } from "../platform/redact/secrets";
+import { errorMessage } from "../platform/util";
 
 const MAX_TEXT_CHARS = 300;
 
@@ -53,14 +54,14 @@ export interface CollectedAlerts {
 const stateRank = (s: string): number => (s === "firing" ? 0 : s === "pending" ? 1 : 2);
 
 // Prometheus is required; Grafana is optional and its failure only costs a note.
-export async function collectAlerts(prom: AlertSource, grafana: AlertSource | undefined): Promise<CollectedAlerts> {
-  const [fromProm, fromGrafana] = await Promise.allSettled([prom.alerts(), grafana ? grafana.alerts() : Promise.resolve([])]);
+export async function collectAlerts(prom: AlertSource, grafana: AlertSource | undefined, opts?: CallOptions): Promise<CollectedAlerts> {
+  const [fromProm, fromGrafana] = await Promise.allSettled([prom.alerts(opts), grafana ? grafana.alerts(opts) : Promise.resolve([])]);
   if (fromProm.status === "rejected") throw fromProm.reason;
   const sources = ["prometheus"];
   const notes: string[] = [];
   let all = fromProm.value.map((a) => toAlertItem("prometheus", a));
   if (!grafana) notes.push("Grafana alerts not included (GRAFANA_URL/GRAFANA_TOKEN not configured)");
-  else if (fromGrafana.status === "rejected") notes.push(`Grafana alerts unavailable: ${redact(errorMessage(fromGrafana.reason))}`);
+  else if (fromGrafana.status === "rejected") notes.push(`Grafana alerts unavailable: ${redactAll(errorMessage(fromGrafana.reason))}`);
   else {
     sources.push("grafana");
     all = all.concat(fromGrafana.value.map((a) => toAlertItem("grafana", a)));

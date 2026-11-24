@@ -1,4 +1,4 @@
-import { redactSecrets } from "../platform/redact/secrets";
+import { redactAll } from "../platform/redact/secrets";
 import { SlotLimiter } from "../platform/slotLimiter";
 import { ToolError, type TimeWindow } from "../tools/contract";
 import { backendJson } from "./http";
@@ -119,7 +119,7 @@ export class PromClient implements PromApi {
       });
       const b = body as PromBody | undefined;
       if (status === 200 && b?.status === "success") return b.data ?? {};
-      const detail = redactSecrets(b?.error ?? "").slice(0, MAX_ERROR_CHARS);
+      const detail = redactAll(b?.error ?? "").slice(0, MAX_ERROR_CHARS);
       if (b?.errorType === "timeout") throw new ToolError("backend_timeout", `Prometheus query timed out: ${detail}`);
       if (status === 400 || status === 422) throw new ToolError("query_rejected", `Prometheus rejected the query: ${detail}`);
       throw new ToolError("backend_unavailable", `Prometheus answered HTTP ${status}${detail ? `: ${detail}` : ""}.`);

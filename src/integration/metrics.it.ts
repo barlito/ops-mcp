@@ -103,7 +103,7 @@ test("ops_alerts and the overview sections see the firing and pending rules", as
   const scoped = await call("ops_alerts", { server: "ovh-prod-1", stack: "shop", service: "shop_web" });
   assert.deepEqual((scoped.structuredContent?.items as Array<{ name: string }>).map((a) => a.name), ["ItDiskFull"]);
 
-  const ctx = { ...deps, auth: { credentialId: "c", name: "n", kind: "token" as const, clientIp: "x" }, now: () => new Date() };
+  const ctx = { ...deps, auth: { credentialId: "c", name: "n", kind: "token" as const, clientIp: "x" }, now: () => new Date(), signal: new AbortController().signal };
   const window = { from: new Date(Date.now() - 3600_000), to: new Date() };
   const registry = testRegistry();
   const alerts = await alertsSection.collect(ctx, registry.servers, window);

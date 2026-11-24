@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { eq } from "../metrics/labels";
 import { cpuPct, diskUsedPct, ramPct } from "../metrics/nodeQueries";
-import { errorMessage, redact } from "../platform/util";
+import { redactAll } from "../platform/redact/secrets";
+import { errorMessage } from "../platform/util";
 import type { OverviewSection } from "./section";
 
 const PartSchema = z.object({
@@ -24,13 +25,13 @@ export const metricsSection: OverviewSection<Part> = {
         const sel = eq("server", server.slug);
         try {
           const [cpu, ram, disk] = await Promise.all([
-            ctx.prom.query(`avg(${cpuPct(sel, "5m")})`, window.to),
-            ctx.prom.query(`avg(${ramPct(sel)})`, window.to),
-            ctx.prom.query(`max(${diskUsedPct(sel)})`, window.to),
+            ctx.prom.query(`avg(${cpuPct(sel, "5m")})`, window.to, { signal: ctx.signal }),
+            ctx.prom.query(`avg(${ramPct(sel)})`, window.to, { signal: ctx.signal }),
+            ctx.prom.query(`max(${diskUsedPct(sel)})`, window.to, { signal: ctx.signal }),
           ]);
           parts.set(server.slug, { cpu_pct: round(cpu[0]?.value), ram_pct: round(ram[0]?.value), disk_max_pct: round(disk[0]?.value) });
         } catch (err) {
-          parts.set(server.slug, { cpu_pct: null, ram_pct: null, disk_max_pct: null, error: redact(errorMessage(err)) });
+          parts.set(server.slug, { cpu_pct: null, ram_pct: null, disk_max_pct: null, error: redactAll(errorMessage(err)) });
         }
       }),
     );

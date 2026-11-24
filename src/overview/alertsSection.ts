@@ -11,7 +11,7 @@ export const alertsSection: OverviewSection<Part> = {
   name: "alerts",
   partSchema: PartSchema,
   async collect(ctx, servers) {
-    const { alerts } = await collectAlerts(ctx.prom, ctx.grafana);
+    const { alerts } = await collectAlerts(ctx.prom, ctx.grafana, { signal: ctx.signal });
     return new Map(
       servers.map((server) => {
         const firing = alerts.filter((a) => a.state === "firing" && a.labels.server === server.slug);

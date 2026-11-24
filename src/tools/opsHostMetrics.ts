@@ -38,7 +38,7 @@ export const opsHostMetrics = defineTool({
     const sel = [eq("server", args.server), ...(args.host ? [eq("host_name", args.host)] : [])].join(",");
 
     const perHost = async (metric: string, unit: string, promql: string, byMountpoint = false): Promise<Item[]> => {
-      const series: PromSeries[] = await ctx.prom.queryRange(promql, window, step);
+      const series: PromSeries[] = await ctx.prom.queryRange(promql, window, step, { signal: ctx.signal });
       if (series.length === 0) return [{ ...metricItem(metric, unit, undefined, NO_DATA), host: args.host ?? null }];
       return series.map((s) => ({ ...metricItem(metric, unit, s), host: s.labels.host_name ?? null, ...(byMountpoint ? { mountpoint: s.labels.mountpoint ?? "" } : {}) }));
     };
@@ -56,7 +56,7 @@ export const opsHostMetrics = defineTool({
         perHost("disk_read", "B/s", `sum by (host_name) (rate(node_disk_read_bytes_total{${sel},device!~"loop.*|ram.*"}[${range}]))`),
         perHost("disk_write", "B/s", `sum by (host_name) (rate(node_disk_written_bytes_total{${sel},device!~"loop.*|ram.*"}[${range}]))`),
       ]),
-      ctx.prom.query(diskDaysUntilFull(sel, lookback), window.to),
+      ctx.prom.query(diskDaysUntilFull(sel, lookback), window.to, { signal: ctx.signal }),
     ]);
 
     const days = new Map(fill.map((s) => [`${s.labels.host_name}|${s.labels.mountpoint}`, Math.round(s.value * 10) / 10]));

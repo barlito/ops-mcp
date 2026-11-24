@@ -9,7 +9,7 @@ import { metricsSection } from "./metricsSection";
 
 const window = { from: new Date("2026-06-01T11:00:00Z"), to: new Date("2026-06-01T12:00:00Z") };
 const registry = testRegistry();
-const ctx = (over: Partial<ToolContext>): ToolContext => ({ registry, cluster: () => ({ info: async () => ({ reachable: true, swarm: true }) }), audit: undefined as never, prom: fakeProm(), auth: TEST_AUTH, now: () => window.to, ...over });
+const ctx = (over: Partial<ToolContext>): ToolContext => ({ registry, cluster: () => ({ info: async () => ({ reachable: true, swarm: true }) }), audit: undefined as never, prom: fakeProm(), auth: TEST_AUTH, now: () => window.to, signal: new AbortController().signal, ...over });
 
 test("both sections are registered", () => {
   assert.deepEqual(OVERVIEW_SECTIONS.map((s) => s.name), ["metrics", "alerts"]);

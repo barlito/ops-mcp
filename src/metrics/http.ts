@@ -1,5 +1,6 @@
 import { ToolError } from "../tools/contract";
-import { errorMessage, redact } from "../platform/util";
+import { redactAll } from "../platform/redact/secrets";
+import { errorMessage } from "../platform/util";
 
 export interface BackendRequest {
   method?: string;
@@ -26,6 +27,6 @@ export async function backendJson(backend: string, url: string, req: BackendRequ
       throw new ToolError("backend_timeout", `${backend} did not answer within ${req.timeoutMs} ms.`);
     }
     const cause = err instanceof Error ? (err.cause as { code?: string } | undefined)?.code : undefined;
-    throw new ToolError("backend_unavailable", `${backend} is unreachable: ${redact(errorMessage(err))}${cause ? ` (${cause})` : ""}.`);
+    throw new ToolError("backend_unavailable", `${backend} is unreachable: ${redactAll(errorMessage(err))}${cause ? ` (${cause})` : ""}.`);
   }
 }

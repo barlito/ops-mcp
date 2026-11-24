@@ -43,7 +43,7 @@ export const opsMetricsQuery = defineTool({
     const m = args.step ? STEP_RE.exec(args.step) : null;
     const requested = m ? Number(m[1]) * STEP_UNIT[m[2] as keyof typeof STEP_UNIT] : 0;
     const step = Math.max(minStepSeconds(window), requested);
-    const series = await ctx.prom.queryRange(args.promql, window, step);
+    const series = await ctx.prom.queryRange(args.promql, window, step, { signal: ctx.signal });
     const items = series.slice(0, MAX_SERIES).map((s): Item => {
       const values = s.points.map(([, v]) => v);
       return { labels: s.labels, ...stats(values), sparkline: sparkline(downsample(values, SPARKLINE_POINTS)), samples: s.points.slice(0, MAX_POINTS) };

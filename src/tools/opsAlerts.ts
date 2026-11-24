@@ -16,7 +16,7 @@ export const opsAlerts = defineTool({
   formatItem,
   async handler(args, ctx) {
     if (args.server) resolveServers(ctx.registry, args.server);
-    const { alerts, sources, notes } = await collectAlerts(ctx.prom, ctx.grafana);
+    const { alerts, sources, notes } = await collectAlerts(ctx.prom, ctx.grafana, { signal: ctx.signal });
     const items = alerts.filter((a) => inScope(a, args));
     const firing = items.filter((a) => a.state === "firing").length;
     const pending = items.filter((a) => a.state === "pending").length;

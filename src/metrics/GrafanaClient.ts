@@ -1,4 +1,4 @@
-import { redactSecrets } from "../platform/redact/secrets";
+import { redactAll } from "../platform/redact/secrets";
 import { ToolError } from "../tools/contract";
 import { backendJson } from "./http";
 import { readFileSync } from "node:fs";
@@ -20,7 +20,7 @@ export class GrafanaClient implements AlertSource {
     });
     const b = body as { status?: string; data?: { alerts?: PromAlert[] }; message?: string } | undefined;
     if (status === 200 && b?.status === "success") return b.data?.alerts ?? [];
-    throw new ToolError("backend_unavailable", `Grafana answered HTTP ${status}${b?.message ? `: ${redactSecrets(b.message).slice(0, 200)}` : ""}.`);
+    throw new ToolError("backend_unavailable", `Grafana answered HTTP ${status}${b?.message ? `: ${redactAll(b.message).slice(0, 200)}` : ""}.`);
   }
 }
 

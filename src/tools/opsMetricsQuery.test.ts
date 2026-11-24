@@ -41,3 +41,10 @@ test("backend failures come back as coded errors", async () => {
   const { call } = await connect([opsMetricsQuery], { prom: fakeProm({ queryRange: async () => Promise.reject(new ToolError("query_rejected", "Prometheus rejected the query: parse error")) }) });
   assert.match(textOf(await call("ops_metrics_query", { promql: "x(" })), /^Error \[query_rejected\]/);
 });
+
+test("the request's abort signal reaches Prometheus", async () => {
+  let signal: AbortSignal | undefined;
+  const { call } = await connect([opsMetricsQuery], { prom: fakeProm({ queryRange: async (_q, _w, _s, opts) => ((signal = opts?.signal), []) }) });
+  await call("ops_metrics_query", { promql: "up" });
+  assert.ok(signal instanceof AbortSignal);
+});

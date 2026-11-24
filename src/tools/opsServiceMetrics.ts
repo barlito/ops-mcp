@@ -30,14 +30,14 @@ export const opsServiceMetrics = defineTool({
     const requests = `traefik_service_requests_total{${traefik}}`;
 
     const ranged = (metric: string, unit: string, promql: string, emptyNote?: string): Promise<MetricItem> =>
-      ctx.prom.queryRange(promql, window, step).then((series) => metricItem(metric, unit, series[0], emptyNote));
+      ctx.prom.queryRange(promql, window, step, { signal: ctx.signal }).then((series) => metricItem(metric, unit, series[0], emptyNote));
 
     const [cpu, memory, memoryPct, restarts, rx, tx, rps, errors, p95] = await Promise.all([
       ranged("cpu", "cores", `sum(rate(container_cpu_usage_seconds_total{${sel}}[${range}]))`),
       ranged("memory_working_set", "MiB", `sum(container_memory_working_set_bytes{${sel}}) / 1048576`),
       ranged("memory_of_limit", "%", `100 * sum(container_memory_working_set_bytes{${sel}}) / (sum(container_spec_memory_limit_bytes{${sel}}) > 0)`, "no memory limit set"),
       ctx.prom
-        .query(`count(${started} > ${Math.floor(window.from.getTime() / 1000)}) or (count(${started}) * 0)`, window.to)
+        .query(`count(${started} > ${Math.floor(window.from.getTime() / 1000)}) or (count(${started}) * 0)`, window.to, { signal: ctx.signal })
         .then((s) => restartItem(s[0]?.value)),
       ranged("network_rx", "B/s", `sum(rate(container_network_receive_bytes_total{${sel}}[${range}]))`),
       ranged("network_tx", "B/s", `sum(rate(container_network_transmit_bytes_total{${sel}}[${range}]))`),

@@ -101,6 +101,7 @@ services:
         condition: any
         delay: 5s
       labels:
+        - fr.barlito.repo=barlito/ops-mcp
         - traefik.enable=true
 
         - traefik.http.services.ops-mcp.loadbalancer.server.port=3000

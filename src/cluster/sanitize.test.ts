@@ -33,15 +33,15 @@ test("service detail keeps names of secrets and configs, never their ids", () =>
 
 test("service detail maps the spec to explicit fields", () => {
   const d = sanitizeServiceDetail(rawFixtures.inspect, { RunningTasks: 0, DesiredTasks: 1 });
-  assert.deepEqual(d.image, { name: "ghcr.io/barlito/shop", tag: "1.5.0", digest: "sha256:0f1e2d3c4b5a" });
-  assert.deepEqual(d.previous_image, { name: "ghcr.io/barlito/shop", tag: "1.4.2", digest: "sha256:aa11bb22cc33" });
+  assert.deepEqual(d.image, { name: "ghcr.io/barlito/shop", tag: "1.5.0", digest: "sha256:111111111111" });
+  assert.deepEqual(d.previous_image, { name: "ghcr.io/barlito/shop", tag: "1.4.2", digest: "sha256:222222222222" });
   assert.deepEqual([d.mode, d.desired, d.running, d.stack], ["replicated", 1, 0, "shop"]);
   assert.deepEqual(d.update_status, { state: "rollback_completed", message: "rollback completed", started_at: "2026-06-01T11:40:02.001Z", completed_at: "2026-06-01T11:42:10.552Z" });
   assert.deepEqual(d.constraints, ["node.role == worker"]);
   assert.deepEqual(d.limits, { nano_cpus: 500000000, memory_bytes: 536870912 });
   assert.deepEqual(d.reservations, { memory_bytes: 134217728 });
   assert.deepEqual(d.ports, [{ protocol: "tcp", target: 8080, published: 8080, mode: "ingress" }]);
-  assert.deepEqual(d.networks, ["n1a2b3c4d5e6"]);
+  assert.deepEqual(d.networks, ["net-shop-def"]);
   assert.deepEqual(d.routes, [{ router: "shop", hosts: ["shop.barlito.fr", "www.shop.barlito.fr"] }]);
   assert.deepEqual(d.args, ["--port=8080", "--password=[REDACTED]", "--token", "[REDACTED]"]);
 });
@@ -66,7 +66,7 @@ test("traefik: only router names and hosts survive", () => {
 });
 
 test("redactText masks url credentials and secret-looking key=value pairs", () => {
-  assert.equal(redactText("psql postgresql://app:S3cret@db:5432/app"), "psql postgresql://[REDACTED]@db:5432/app");
+  assert.equal(redactText("psql postgresql://app:fake-pass@db:5432/app"), "psql postgresql://[REDACTED]@db:5432/app");
   assert.equal(redactText("run --api-key=zzz TOKEN=abc plain=ok"), "run --api-key=[REDACTED] TOKEN=[REDACTED] plain=ok");
   assert.equal(redactText("task: non-zero exit (1)"), "task: non-zero exit (1)");
 });

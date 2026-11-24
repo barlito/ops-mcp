@@ -65,7 +65,7 @@ test("listTasks scopes by the service ids of the stack and sorts newest first", 
   const tasks = await source.listTasks({ stack: "shop" });
   assert.deepEqual(tasks.map((t) => t.id), ["t4sk0000000000000000rej01", "t4sk0000000000000000fail1", "t4sk0000000000000000fail0", "t4sk00000000000000000ok01"]);
   assert.ok(lastRequest().startsWith("/tasks?filters="));
-  assert.deepEqual(filtersOf(lastRequest()), { service: ["k3x9v2m7q1w5e8r4t6y0u2i4o", "p5l8m2n4b6v1c3x7z9a0s2d4f"] });
+  assert.deepEqual(filtersOf(lastRequest()), { service: ["svc-shop-web", "svc-shop-worker"] });
 });
 
 test("listTasks filters by service and by state", async () => {

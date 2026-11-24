@@ -1,6 +1,6 @@
 [
   {
-    "ID": "k3x9v2m7q1w5e8r4t6y0u2i4o",
+    "ID": "svc-shop-web",
     "Version": { "Index": 4821 },
     "CreatedAt": "2026-05-02T09:14:03.118Z",
     "UpdatedAt": "2026-06-01T11:42:10.552Z",
@@ -9,12 +9,12 @@
       "Labels": {
         "com.docker.stack.namespace": "shop",
         "fr.barlito.repo": "barlito/shop",
-        "traefik.http.middlewares.shop-auth.basicauth.users": "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+        "traefik.http.middlewares.shop-auth.basicauth.users": "admin:$apr1$fakesalt$fakehash"
       },
       "TaskTemplate": {
         "ContainerSpec": {
-          "Image": "ghcr.io/barlito/shop:1.5.0@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff",
-          "Env": ["DATABASE_URL=postgresql://app:S3cretP4ss@db:5432/app", "APP_SECRET=abc123def456ghi789", "SENTRY_DSN=https://b3a1c0ffee77@o1.ingest.sentry.io/2"]
+          "Image": "ghcr.io/barlito/shop:1.5.0@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "Env": ["DATABASE_URL=postgresql://app:fake-db-password@db:5432/app", "APP_SECRET=fake-app-secret-for-tests", "SENTRY_DSN=https://fake-sentry-key@o1.ingest.sentry.io/2"]
         }
       },
       "Mode": { "Replicated": { "Replicas": 1 } }
@@ -22,20 +22,20 @@
     "ServiceStatus": { "RunningTasks": 0, "DesiredTasks": 1 }
   },
   {
-    "ID": "p5l8m2n4b6v1c3x7z9a0s2d4f",
+    "ID": "svc-shop-worker",
     "Version": { "Index": 4700 },
     "CreatedAt": "2026-05-02T09:14:04.000Z",
     "UpdatedAt": "2026-05-20T08:00:00.000Z",
     "Spec": {
       "Name": "shop_worker",
       "Labels": { "com.docker.stack.namespace": "shop", "fr.barlito.repo": "barlito/shop" },
-      "TaskTemplate": { "ContainerSpec": { "Image": "ghcr.io/barlito/shop:1.5.0", "Env": ["AMQP_URL=amqp://guest:Rabb1tPass@mq:5672"] } },
+      "TaskTemplate": { "ContainerSpec": { "Image": "ghcr.io/barlito/shop:1.5.0", "Env": ["AMQP_URL=amqp://guest:fake-amqp-password@mq:5672"] } },
       "Mode": { "Replicated": { "Replicas": 2 } }
     },
     "ServiceStatus": { "RunningTasks": 2, "DesiredTasks": 2 }
   },
   {
-    "ID": "g1h2j3k4l5z6x7c8v9b0n1m2q",
+    "ID": "svc-obs-alloy",
     "Version": { "Index": 120 },
     "CreatedAt": "2026-04-01T10:00:00.000Z",
     "UpdatedAt": "2026-04-01T10:00:00.000Z",
@@ -48,7 +48,7 @@
     "ServiceStatus": { "RunningTasks": 2, "DesiredTasks": 2 }
   },
   {
-    "ID": "s0l1o2s3t4a5c6k7s8e9r0v1i",
+    "ID": "svc-loose",
     "Version": { "Index": 5 },
     "CreatedAt": "2026-03-01T10:00:00.000Z",
     "UpdatedAt": "2026-03-01T10:00:00.000Z",

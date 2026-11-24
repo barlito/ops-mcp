@@ -177,3 +177,16 @@ test("a deployment of another environment is refused", async () => {
     await stub.close();
   }
 });
+
+test("a missing repository is remembered: the second lookup costs no request", async () => {
+  const stub = await startGitHubStub({});
+  try {
+    const client = new GitHubClient(GH_TOKEN, { baseUrl: stub.url });
+    const budget = new RequestBudget(5);
+    for (let i = 0; i < 3; i++) await assert.rejects(client.recentDeployments("ghost", since, { budget }), (e) => e instanceof ToolError && e.code === "not_found");
+    assert.equal(stub.seen.length, 1);
+    assert.equal(budget.remaining, 4);
+  } finally {
+    await stub.close();
+  }
+});

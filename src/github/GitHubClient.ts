@@ -14,6 +14,9 @@ const MAX_CACHE_ENTRIES = 200;
 const QUEUE_WAIT_MS = 5000;
 const QUEUE_POLL_MS = 25;
 const REPO_PART = /^[A-Za-z0-9_.-]{1,100}$/;
+const MISSING_MS = 10 * 60_000;
+
+export const isRepoName = (name: string): boolean => REPO_PART.test(name) && name !== "." && name !== "..";
 const RUN_URL = /^https:\/\/github\.com\//;
 
 export interface GhDeployment {
@@ -67,6 +70,8 @@ interface CacheEntry {
 export class GitHubClient implements GitHubApi {
   private readonly limiter: SlotLimiter;
   private readonly cache = new Map<string, CacheEntry>();
+  // Paths that answered 404, remembered so a guessed repository costs one request per period.
+  private readonly missing = new Map<string, number>();
   private readonly owner: string;
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
@@ -120,7 +125,7 @@ export class GitHubClient implements GitHubApi {
   private repoPath(repo: string): string {
     const parts = repo.split("/");
     const [owner, name] = parts.length === 2 ? parts : [this.owner, repo];
-    if (parts.length > 2 || ![owner!, name!].every((p) => REPO_PART.test(p) && p !== "." && p !== "..")) {
+    if (parts.length > 2 || ![owner!, name!].every(isRepoName)) {
       throw new ToolError("invalid_param", "Repository must be a name or owner/name (letters, digits, _ . -).");
     }
     return `/repos/${owner}/${name}`;
@@ -143,6 +148,7 @@ export class GitHubClient implements GitHubApi {
     const signal = opts?.signal;
     const cached = this.cache.get(path);
     if (cached && Date.now() - cached.at < this.cacheMs) return cached.body;
+    if ((this.missing.get(path) ?? 0) > Date.now()) throw failure(404, new Headers());
     if (opts?.budget && !opts.budget.take()) throw new ToolError("backend_unavailable", "GitHub request budget of this call reached.");
     const release = await this.acquire(signal);
     try {
@@ -157,6 +163,7 @@ export class GitHubClient implements GitHubApi {
       }
       if (status !== 200 || body === undefined) {
         const err = failure(status, headers);
+        if (status === 404) this.missing.set(path, Date.now() + MISSING_MS);
         // Rate limit and 5xx: a stale answer beats none.
         if (cached && err.code === "backend_unavailable") return cached.body;
         throw err;

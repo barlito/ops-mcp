@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { REPO_LABEL } from "../cluster/types";
 import type { Registry } from "../registry";
-import type { GhDeployment } from "./GitHubClient";
+import { type GhDeployment, isRepoName } from "./GitHubClient";
 
 // A deployment is created before its rollout reaches Swarm, never long after.
 const BEFORE_UPDATE_MS = 30 * 60_000;
@@ -29,12 +29,17 @@ export interface SwarmFacts {
   tags: string[];
 }
 
-// Repo of a service: its fr.barlito.repo label, else the registry's stack_projects entry.
-export function resolveRepo(service: { labels: Record<string, string>; stack?: string }, registry: Registry): string | undefined {
+// Repo of a service: its fr.barlito.repo label, else the registry's stack_projects entry, else (one service,
+// one repo) the stack name, flagged as a guess.
+export function resolveRepoRef(service: { labels: Record<string, string>; stack?: string }, registry: Registry): { repo: string; guess: boolean } | undefined {
   const fromLabel = service.labels[REPO_LABEL];
-  if (fromLabel) return fromLabel;
-  return service.stack !== undefined && Object.hasOwn(registry.stack_projects, service.stack) ? registry.stack_projects[service.stack] : undefined;
+  if (fromLabel) return { repo: fromLabel, guess: false };
+  if (service.stack === undefined) return undefined;
+  if (Object.hasOwn(registry.stack_projects, service.stack)) return { repo: registry.stack_projects[service.stack]!, guess: false };
+  return isRepoName(service.stack) ? { repo: service.stack, guess: true } : undefined;
 }
+
+export const resolveRepo = (service: Parameters<typeof resolveRepoRef>[0], registry: Registry): string | undefined => resolveRepoRef(service, registry)?.repo;
 
 export const repoName = (repo: string): string => repo.slice(repo.lastIndexOf("/") + 1);
 

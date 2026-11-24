@@ -53,6 +53,24 @@ export const withSignal = (loki: LokiApi, signal: AbortSignal): LokiApi => ({
   query: (p, opts) => loki.query(p, { signal, ...opts }),
 });
 
+// At most `max` concurrent requests of this wrapper, the others wait; leaves slots to the other tools.
+export function withConcurrency(loki: LokiApi, max: number): LokiApi {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const run = async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (active < max) active++;
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+    try {
+      return await fn();
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
+  return { queryRange: (p, opts) => run(() => loki.queryRange(p, opts)), query: (p, opts) => run(() => loki.query(p, opts)) };
+}
+
 const labelsSchema = z.record(z.string(), z.string());
 const responseSchema = z.object({
   status: z.literal("success"),

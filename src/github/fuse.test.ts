@@ -3,15 +3,20 @@ import assert from "node:assert/strict";
 import { parseRegistry } from "../registry";
 import { testRegistry } from "../test-support/fixtures";
 import { ghDeployment } from "../test-support/github";
-import { linkOf, matchDeployment, repoName, resolveRepo } from "./fuse";
+import { linkOf, matchDeployment, repoName, resolveRepo, resolveRepoRef } from "./fuse";
 
 const at = (iso: string) => Date.parse(iso);
 
-test("the repo is the fr.barlito.repo label, else the registry stack_projects entry, else unknown", () => {
+test("the repo is the fr.barlito.repo label, else the registry stack_projects entry, else the stack name as a guess", () => {
   const registry = testRegistry();
   assert.equal(resolveRepo({ labels: { "fr.barlito.repo": "barlito/carapp" }, stack: "obs" }, registry), "barlito/carapp");
   assert.equal(resolveRepo({ labels: {}, stack: "obs" }, registry), "observability-stack");
-  assert.equal(resolveRepo({ labels: {}, stack: "shop" }, registry), undefined);
+  assert.deepEqual(resolveRepoRef({ labels: { "fr.barlito.repo": "barlito/carapp" }, stack: "obs" }, registry), { repo: "barlito/carapp", guess: false });
+  assert.deepEqual(resolveRepoRef({ labels: {}, stack: "obs" }, registry), { repo: "observability-stack", guess: false });
+  assert.deepEqual(resolveRepoRef({ labels: {}, stack: "shop" }, registry), { repo: "shop", guess: true });
+  assert.equal(resolveRepo({ labels: {}, stack: "bad stack/../x" }, registry), undefined);
+  assert.equal(resolveRepo({ labels: {}, stack: ".." }, registry), undefined);
+  assert.equal(resolveRepo({ labels: {} }, registry), undefined);
   assert.equal(resolveRepo({ labels: {} }, parseRegistry("tenants: [{slug: a}]\nservers: [{slug: s, env: e, kind: swarm, tenant: a, source: {type: local, url: 'tcp://x:1'}}]\nstack_projects: {constructor: boom}")), undefined);
   assert.equal(repoName("barlito/carapp"), "carapp");
   assert.equal(repoName("carapp"), "carapp");

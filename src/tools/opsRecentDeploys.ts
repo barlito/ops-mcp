@@ -2,7 +2,7 @@ import { z } from "zod";
 import { imageLabel, timeOf } from "../cluster/swarm";
 import type { ServiceSummary } from "../cluster/types";
 import { type GhDeployment, RequestBudget } from "../github/GitHubClient";
-import { bareTag, DeployLinkSchema, isTagRef, linkOf, matchDeployment, resolveRepo, type SwarmFacts } from "../github/fuse";
+import { bareTag, DeployLinkSchema, isTagRef, linkOf, matchDeployment, resolveRepo, resolveRepoRef, type SwarmFacts } from "../github/fuse";
 import { ToolError, defineTool, envelopeSchema, limitParam, resolveServers, resolveWindow, scopeShape } from "./contract";
 import { failureNote, fanOut } from "./fanOut";
 
@@ -19,6 +19,8 @@ const ItemSchema = z.object({
   failed_image: z.string().optional(),
   github: DeployLinkSchema.optional(),
   github_only: z.literal(true).optional(),
+  // The repository is the stack name, not a label or registry entry.
+  repo_guess: z.literal(true).optional(),
 });
 type Item = z.infer<typeof ItemSchema>;
 
@@ -30,7 +32,7 @@ const FAILED_STATUSES = new Set(["failure", "error"]);
 interface Repo {
   server: string;
   stack?: string;
-  recent: boolean;
+  guess: boolean;
 }
 
 interface Looked {
@@ -87,16 +89,17 @@ export const opsRecentDeploys = defineTool({
       const collect = (recentOnly: boolean): void => {
         for (const { server, value } of ok) {
           for (const s of value) {
-            const repo = resolveRepo(s, ctx.registry);
-            const isRecent = inWindow(s.updated_at);
-            if (repo !== undefined && !repos.has(repo) && isRecent === recentOnly) repos.set(repo, { server: server.slug, stack: s.stack, recent: recentOnly });
+            const ref = resolveRepoRef(s, ctx.registry);
+            if (ref !== undefined && !repos.has(ref.repo) && inWindow(s.updated_at) === recentOnly) repos.set(ref.repo, { server: server.slug, stack: s.stack, guess: ref.guess });
           }
         }
       };
       // Repos with a Swarm update in the window first: the others only matter for deployments that failed before reaching Swarm.
       collect(true);
       collect(false);
-      const names = [...repos.keys()].slice(0, MAX_REPOS);
+      // Guessed repositories last: they are the first to be dropped by the cap.
+      const ordered = [...repos.keys()].sort((a, b) => Number(repos.get(a)!.guess) - Number(repos.get(b)!.guess));
+      const names = ordered.slice(0, MAX_REPOS);
       const skipped = repos.size - names.length;
       const budget = new RequestBudget(GITHUB_REQUEST_BUDGET);
       const ghWindow = { from: new Date(window.from.getTime() - LOOKBACK_MS), to: window.to };
@@ -107,7 +110,7 @@ export const opsRecentDeploys = defineTool({
       const errors = new Set<string>();
       results.forEach((r, i) => {
         if (r.status === "fulfilled") byRepo.set(names[i]!, r.value);
-        else errors.add(r.reason instanceof ToolError ? r.reason.code : "error");
+        else if (!(r.reason instanceof ToolError && r.reason.code === "not_found" && repos.get(names[i]!)!.guess)) errors.add(r.reason instanceof ToolError ? r.reason.code : "error");
       });
       githubNote = `${errors.size ? `; GitHub unavailable (${[...errors].join(", ")})` : ""}${budget.exhausted ? `; GitHub request budget (${GITHUB_REQUEST_BUDGET}) reached, results partial` : ""}${skipped > 0 ? `; ${skipped} repositories not queried (limit ${MAX_REPOS})` : ""}`;
 
@@ -135,15 +138,18 @@ export const opsRecentDeploys = defineTool({
           return [key, linkOf(d, s.image.tag)] as const;
         }),
       );
+      const guessed = (repo: string | undefined): { repo_guess?: true } => (repo !== undefined && repos.get(repo)?.guess ? { repo_guess: true } : {});
+      const repoOf = new Map(recent.map(({ server, service: s }) => [`${server.slug}/${s.name}`, resolveRepo(s, ctx.registry)]));
       items = items.map((i) => {
-        const github = links.get(`${i.server}/${i.service}`);
-        return github ? { ...i, github } : i;
+        const key = `${i.server}/${i.service}`;
+        const github = links.get(key);
+        return github ? { ...i, github, ...guessed(repoOf.get(key)) } : i;
       });
       for (const [repo, deployments] of byRepo) {
         for (const d of deployments) {
           if (matched.has(d.id) || !inWindow(d.created_at) || (isTagRef(d.ref) && reached.get(repo)?.has(bareTag(d.ref)))) continue;
           const { server, stack } = repos.get(repo)!;
-          githubOnly.push({ server, repo, ...(stack === undefined ? {} : { stack }), at: d.created_at, github: linkOf(d), github_only: true });
+          githubOnly.push({ server, repo, ...(stack === undefined ? {} : { stack }), at: d.created_at, github: linkOf(d), github_only: true, ...guessed(repo) });
         }
       }
       githubOnly.sort((a, b) => timeOf(b.at) - timeOf(a.at));

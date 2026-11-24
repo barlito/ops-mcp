@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { ToolError } from "../tools/contract";
-import { LokiClient } from "./LokiClient";
+import { type LokiApi, LokiClient, withConcurrency } from "./LokiClient";
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void;
 
@@ -151,4 +151,17 @@ test("a body that never finishes is a backend_timeout", async () => {
   await withLoki((_req, res) => { res.writeHead(200, { "content-type": "application/json" }); res.write("{"); }, async (url) => {
     await assert.rejects(new LokiClient({ url, timeoutMs: 150 }).queryRange(range), code("backend_timeout"));
   });
+});
+
+test("withConcurrency never runs more than the allowed requests at once and finishes them all", async () => {
+  let active = 0;
+  let peak = 0;
+  const slow: LokiApi = {
+    query: async () => (peak = Math.max(peak, ++active), await new Promise((r) => setTimeout(r, 10)), active--, { type: "series", series: [] }),
+    queryRange: async () => (peak = Math.max(peak, ++active), await new Promise((r) => setTimeout(r, 10)), active--, { type: "streams", streams: [] }),
+  };
+  const limited = withConcurrency(slow, 2);
+  const results = await Promise.all(Array.from({ length: 9 }, (_, i) => (i % 2 ? limited.query({ query: "x", time: 0n }) : limited.queryRange({ query: "x", start: 0n, end: 1n }))));
+  assert.equal(results.length, 9);
+  assert.equal(peak, 2);
 });

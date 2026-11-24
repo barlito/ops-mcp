@@ -98,12 +98,12 @@ test("github_only items never evict Swarm updates from the limit", async () => {
   assert.equal(r.structuredContent?.truncated, true);
 });
 
-test("repositories are only queried for services that resolve to one, and the budget and repo cap are reported", async () => {
+test("repositories are queried for services that resolve to one (stack name as a last resort), and the budget and repo cap are reported", async () => {
   const calls: string[] = [];
   const spy: GitHubApi = { ...github, recentDeployments: async (repo) => (calls.push(repo), []) };
   const { call } = await connect([opsRecentDeploys], { cluster: () => stubSource({ listServices: async () => [service("x_web", undefined, "v1", "2026-06-01T11:30:00.000Z", "x")], serviceUpdateHistory: async () => ({ service: "x_web", created_at: "", updated_at: "2026-06-01T11:30:00.000Z", image: { name: "x", tag: "v1" } }) }), github: spy });
   await call("ops_recent_deploys", { server: "ovh-prod-1" });
-  assert.deepEqual(calls, []);
+  assert.deepEqual(calls, ["x"]);
 
   const many = Array.from({ length: 25 }, (_, i) => service(`s${i}_web`, `barlito/s${i}`, "v1", "2026-06-01T11:30:00.000Z", `s${i}`));
   calls.length = 0;
@@ -162,4 +162,36 @@ test("with the real client against a stub GitHub, no output or audit row holds t
   } finally {
     await stub.close();
   }
+});
+
+test("a repository guessed from the stack name is flagged, and its 404 is silent", async () => {
+  const guessing: GitHubApi = {
+    ...github,
+    recentDeployments: async (repo, w, o) => {
+      if (repo === "shop") throw new ToolError("not_found", "GitHub repository or deployment not found, or not visible to the token.");
+      return github.recentDeployments(repo, w, o);
+    },
+  };
+  const unlabelled = [service("shop_web", undefined, "v2.0.1", "2026-06-01T11:30:00.000Z"), service("carapp_php", "barlito/carapp", "v1.4.3", "2026-06-01T11:45:00.000Z"), service("api_web", undefined, "v1.4.3", "2026-06-01T11:46:00.000Z")];
+  const { call } = await connect([opsRecentDeploys], {
+    cluster: () => stubSource({ listServices: async () => unlabelled, serviceUpdateHistory: async (id) => { const s = unlabelled.find((x) => x.id === id)!; return { service: s.name, stack: s.stack, created_at: s.created_at, updated_at: s.updated_at, image: s.image }; } }),
+    github: guessing,
+  });
+  const r = await call("ops_recent_deploys", { server: "ovh-prod-1" });
+  assert.doesNotMatch(r.structuredContent?.summary as string, /unavailable|not_found/);
+  const items = r.structuredContent?.items as Item[];
+  assert.equal(items.find((i) => i.service === "carapp_php")?.repo_guess, undefined);
+  assert.equal(items.find((i) => i.service === "carapp_php")?.github?.deployment_id, 10);
+  assert.ok(items.find((i) => i.service === "shop_web")?.github === undefined);
+});
+
+test("a deployment matched through a guessed repository carries repo_guess", async () => {
+  const guessed = [service("carapp_php", undefined, "v1.4.3", "2026-06-01T11:45:00.000Z")];
+  const { call } = await connect([opsRecentDeploys], {
+    cluster: () => stubSource({ listServices: async () => guessed, serviceUpdateHistory: async () => ({ service: "carapp_php", stack: "carapp", created_at: "", updated_at: "2026-06-01T11:45:00.000Z", image: guessed[0]!.image }) }),
+    github: { ...github, recentDeployments: async (repo) => deployments[repo === "carapp" ? "barlito/carapp" : repo] ?? [] },
+  });
+  const items = (await call("ops_recent_deploys", { server: "ovh-prod-1" })).structuredContent?.items as Item[];
+  assert.deepEqual([items[0]!.github.deployment_id, items[0]!.repo_guess], [10, true]);
+  assert.deepEqual([items[1]!.github_only, items[1]!.repo_guess], [true, true]);
 });

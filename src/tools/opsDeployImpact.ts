@@ -4,7 +4,7 @@ import { linkOf, resolveRepo } from "../github/fuse";
 import { countLines } from "../logs/count";
 import { SAMPLE_LINES } from "../logs/fetch";
 import { levelPatterns } from "../logs/patterns";
-import { withSignal } from "../logs/LokiClient";
+import { withConcurrency, withSignal } from "../logs/LokiClient";
 import { eq } from "../metrics/labels";
 import { containerStartsQuery, requestsSeries, spanSeconds, stackLevelOnly, traefikScope } from "../metrics/serviceQueries";
 import { redactAll } from "../platform/redact/secrets";
@@ -16,6 +16,8 @@ const MAX_WINDOW_MS = 120 * MINUTE_MS;
 const MIN_WINDOW_MS = MINUTE_MS;
 // A Swarm update this close after the GitHub deployment is the rollout of that deployment.
 const ROLLOUT_MS = 30 * MINUTE_MS;
+// Loki allows 4 concurrent queries: leave half of them to the other tools.
+const LOKI_CONCURRENCY = 2;
 const TOP_PATTERNS = 3;
 // A pattern seen once is noise, not a new failure mode.
 const MIN_PATTERN_COUNT = 2;
@@ -122,7 +124,7 @@ export const opsDeployImpact = defineTool({
     const after: TimeWindow = { from: new Date(instant), to: new Date(instant + span) };
     const partial = span < length;
 
-    const loki = withSignal(ctx.loki, ctx.signal);
+    const loki = withConcurrency(withSignal(ctx.loki, ctx.signal), LOKI_CONCURRENCY);
     const scope = { server: args.server, service: args.service };
     const prom = (promql: string, w: TimeWindow): Promise<number | null> => ctx.prom.query(promql, w.to, { signal: ctx.signal }).then((s) => s[0]?.value ?? null);
     const { matcher, stack } = traefikScope(args.server, args.service);

@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { ClusterSourceProvider } from "../cluster/ClusterSource";
+import type { AlertSource, PromApi } from "../metrics/PromClient";
 import type { AuditLog } from "../platform/audit";
 import type { AuthContext } from "../platform/auth/context";
 import { redactSecrets } from "../platform/redact/secrets";
@@ -248,6 +249,8 @@ export interface ToolDeps {
   registry: Registry;
   cluster: ClusterSourceProvider;
   audit: AuditLog;
+  prom: PromApi;
+  grafana?: AlertSource;
   now?: () => Date;
 }
 
@@ -297,7 +300,7 @@ export function defineTool<Shape extends z.ZodRawShape, Item>(spec: ToolSpec<Sha
     name: spec.name,
     description,
     register(server, deps, auth) {
-      const ctx: ToolContext = { registry: deps.registry, cluster: deps.cluster, audit: deps.audit, auth, now: deps.now ?? (() => new Date()) };
+      const ctx: ToolContext = { ...deps, auth, now: deps.now ?? (() => new Date()) };
 
       server.registerTool(
         spec.name,

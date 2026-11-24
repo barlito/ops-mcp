@@ -2,6 +2,8 @@ import type { Server } from "node:http";
 import express, { Express, NextFunction, Request, Response } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { cachedClusterSources } from "./cluster/ClusterSource";
+import { grafanaFromEnv } from "./metrics/GrafanaClient";
+import { PromClient } from "./metrics/PromClient";
 import { createMcpServer } from "./mcp";
 import { AuditLog } from "./platform/audit";
 import { AuthFailureAudit } from "./platform/authFailure";
@@ -220,7 +222,7 @@ export async function start(): Promise<{ server: Server; shutdown: (signal?: str
   await trustedProxy.refresh();
 
   const lifecycle = new Lifecycle();
-  const app = createApp({ db, tokens, connectorKeys, audit, authAudit, lifecycle, trustedProxy, tools: { registry, audit, cluster: cachedClusterSources() } });
+  const app = createApp({ db, tokens, connectorKeys, audit, authAudit, lifecycle, trustedProxy, tools: { registry, audit, cluster: cachedClusterSources(), prom: new PromClient(process.env.PROM_URL || "http://prometheus:9090"), grafana: grafanaFromEnv(process.env) } });
   let server: Server;
   try {
     server = await listen(app, port);

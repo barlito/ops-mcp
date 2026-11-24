@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import express, { Express, NextFunction, Request, Response } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { cachedClusterSources } from "./cluster/ClusterSource";
+import { githubFromEnv } from "./github/GitHubClient";
 import { grafanaFromEnv } from "./metrics/GrafanaClient";
 import { PromClient } from "./metrics/PromClient";
 import { createMcpServer } from "./mcp";
@@ -214,7 +215,7 @@ export async function start(): Promise<{ server: Server; shutdown: (signal?: str
   await trustedProxy.refresh();
 
   const lifecycle = new Lifecycle();
-  const app = createApp({ db, tokens, connectorKeys, audit, authAudit, lifecycle, trustedProxy, tools: { registry, audit, cluster: cachedClusterSources(), loki: new LokiClient({ url: process.env.LOKI_URL }), prom: new PromClient(process.env.PROM_URL || "http://prometheus:9090"), grafana: grafanaFromEnv(process.env) } });
+  const app = createApp({ db, tokens, connectorKeys, audit, authAudit, lifecycle, trustedProxy, tools: { registry, audit, cluster: cachedClusterSources(), loki: new LokiClient({ url: process.env.LOKI_URL }), prom: new PromClient(process.env.PROM_URL || "http://prometheus:9090"), grafana: grafanaFromEnv(process.env), github: githubFromEnv(process.env) } });
   let server: Server;
   try {
     server = await listen(app, port);

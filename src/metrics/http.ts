@@ -17,7 +17,7 @@ export interface BackendRequest {
 const TOO_LARGE = "result too large, narrow the query (by/topk)";
 
 // JSON over HTTP with failures mapped to ToolError; `body` is undefined when the answer is not JSON.
-export async function backendJson(backend: string, url: string, req: BackendRequest): Promise<{ status: number; body: unknown }> {
+export async function backendJson(backend: string, url: string, req: BackendRequest): Promise<{ status: number; body: unknown; headers: Headers }> {
   const signal = req.signal ? AbortSignal.any([req.signal, AbortSignal.timeout(req.timeoutMs)]) : AbortSignal.timeout(req.timeoutMs);
   try {
     const res = await fetch(url, { method: req.method, headers: req.headers, body: req.body, signal });
@@ -28,7 +28,7 @@ export async function backendJson(backend: string, url: string, req: BackendRequ
     } catch {
       body = undefined;
     }
-    return { status: res.status, body };
+    return { status: res.status, body, headers: res.headers };
   } catch (err) {
     if (err instanceof BodyTooLargeError) throw new ToolError("query_rejected", TOO_LARGE);
     if (req.signal?.aborted) throw new ToolError("cancelled", "Request cancelled.");

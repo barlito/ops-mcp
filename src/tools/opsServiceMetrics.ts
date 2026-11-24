@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { anyOf, eq } from "../metrics/labels";
+import { eq } from "../metrics/labels";
+import { containerStartsQuery, requestsSeries, spanSeconds, stackLevelOnly, traefikScope } from "../metrics/serviceQueries";
 import { NO_DATA, formatMetric, MAX_WINDOW_MS, metricItem, MetricItemSchema, type MetricItem, minStepSeconds } from "../metrics/series";
 import { clampWindow, nameParam, defineTool, envelopeSchema, resolveServers, resolveWindow, scopeShape } from "./contract";
 
@@ -22,14 +23,10 @@ export const opsServiceMetrics = defineTool({
     const window = clampWindow(resolveWindow(args, ctx.now()), MAX_WINDOW_MS);
     const step = minStepSeconds(window);
     const range = `${Math.max(step, 60)}s`;
-    const span = `${Math.round((window.to.getTime() - window.from.getTime()) / 1000)}s`;
+    const span = `${spanSeconds(window)}s`;
     const sel = `${eq("server", args.server)},${eq("service_name", args.service)}`;
-    const stack = args.service.includes("_") ? args.service.slice(0, args.service.indexOf("_")) : undefined;
-    const autoName = args.service.replace(/[^a-zA-Z0-9]/g, "-");
-    const names = [...new Set([args.service, ...(stack ? [stack] : []), autoName])];
-    const traefik = `${eq("server", args.server)},${anyOf("service", names, "@.+")}`;
-    const started = `max_over_time(container_start_time_seconds{${sel}}[${span}])`;
-    const requests = `traefik_service_requests_total{${traefik}}`;
+    const { matcher: traefik, stack } = traefikScope(args.server, args.service);
+    const requests = requestsSeries(traefik);
 
     const ranged = (metric: string, unit: string, promql: string, emptyNote?: string): Promise<MetricItem> =>
       ctx.prom.queryRange(promql, window, step, { signal: ctx.signal }).then((series) => metricItem(metric, unit, series[0], emptyNote, window.to.getTime() / 1000 - step));
@@ -38,9 +35,7 @@ export const opsServiceMetrics = defineTool({
       ranged("cpu", "cores", `sum(rate(container_cpu_usage_seconds_total{${sel}}[${range}]))`),
       ranged("memory_working_set", "MiB", `sum(container_memory_working_set_bytes{${sel}}) / 1048576`),
       ranged("memory_of_limit", "%", `100 * sum(container_memory_working_set_bytes{${sel}}) / (sum(container_spec_memory_limit_bytes{${sel}}) > 0)`, "no memory limit set"),
-      ctx.prom
-        .query(`count(${started} > ${Math.floor(window.from.getTime() / 1000)}) or (count(${started}) * 0)`, window.to, { signal: ctx.signal })
-        .then((s) => restartItem(s[0]?.value)),
+      ctx.prom.query(containerStartsQuery(args.server, args.service, window), window.to, { signal: ctx.signal }).then((s) => restartItem(s[0]?.value)),
       ranged("network_rx", "B/s", `sum(rate(container_network_receive_bytes_total{${sel}}[${range}]))`),
       ranged("network_tx", "B/s", `sum(rate(container_network_transmit_bytes_total{${sel}}[${range}]))`),
       ranged("traefik_requests", "req/s", `sum(rate(${requests}[${range}]))`, "no Traefik traffic for this service name"),
@@ -50,8 +45,7 @@ export const opsServiceMetrics = defineTool({
     ]);
 
     const matchedServices = matched.flatMap((s) => (s.labels.service ? [s.labels.service] : []));
-    const stackLevelOnly = stack !== undefined && matchedServices.length > 0 && matchedServices.every((m) => m.split("@")[0] === stack);
-    const shared = (i: MetricItem): MetricItem => (stackLevelOnly && i.last !== null && !i.note ? { ...i, note: `Traefik service ${matchedServices.join(", ")} is shared by the whole stack` } : i);
+    const shared = (i: MetricItem): MetricItem => (stackLevelOnly(stack, matchedServices) && i.last !== null && !i.note ? { ...i, note: `Traefik service ${matchedServices.join(", ")} is shared by the whole stack` } : i);
     const all = [cpu, memory, memoryPct, restarts, rx, tx, shared(rps), shared(errors), shared(p95)];
     const withData = all.filter((i) => i.last !== null).length;
     // The generic "not running / not scraped" hint only makes sense when nothing at all was found.

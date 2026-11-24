@@ -22,5 +22,6 @@ jobs:
         ADMIN_PROXY_SECRET_NAME=ci
         ADMIN_WEB_SECRET_NAME=ci
         GRAFANA_TOKEN_SECRET_NAME=ci
+        GH_DEPLOYMENTS_TOKEN_SECRET_NAME=ci
         ADMIN_PROXY_SECRET=ci-dummy-admin-proxy-secret-0123456789abcdef
         ADMIN_WEB_SECRET=ci-dummy-admin-web-secret-0123456789abcdef

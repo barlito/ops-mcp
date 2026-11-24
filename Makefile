@@ -83,7 +83,9 @@ deploy: ## Build the image and deploy the stack locally (Swarm)
 	web_name=$$(scripts/ensure-secret.sh ops_admin_web_secret < data/admin-web-secret); \
 	grafana_token=$$(cat data/grafana-token 2>/dev/null || true); \
 	grafana_name=$$(printf %s "$${grafana_token:-unset}" | scripts/ensure-secret.sh ops_grafana_token); \
-	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
+	gh_deployments_token=$$(cat data/gh-deployments-token 2>/dev/null || true); \
+	gh_deployments_name=$$(printf %s "$${gh_deployments_token:-unset}" | scripts/ensure-secret.sh ops_gh_deployments_token); \
+	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name GH_DEPLOYMENTS_TOKEN_SECRET_NAME=$$gh_deployments_name CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
 	  docker compose build && $(call stack_deploy,,)
 	$(MAKE) prune-local-images
 

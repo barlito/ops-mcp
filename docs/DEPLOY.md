@@ -51,7 +51,7 @@ The `make token-*`, `make connector-key-*` and `make backup-db` targets use `doc
 
 ## Docker API exposure
 
-`dockerproxy-ops` is the only service that touches `/var/run/docker.sock`. It whitelists `SERVICES`, `TASKS`, `NODES`, `INFO`, `VERSION` and `SWARM` read endpoints, refuses every write (`POST=0`), has no `CONTAINERS`, and lives on the internal overlay network `ops_docker` shared only with ops-mcp. Note that `SWARM=1` exposes `GET /swarm`, whose answer contains the Swarm join tokens, and `GET /services` returns service environment variables: anything that can reach the proxy can read both, which is why ops-mcp redacts secret-shaped strings from results and why the network is internal.
+`dockerproxy-ops` is the only service that touches `/var/run/docker.sock`. It whitelists `SERVICES`, `TASKS`, `NODES`, `INFO` and `VERSION` read endpoints (Swarm state comes from `/info`; `SWARM` is deliberately off because `GET /swarm` returns the join tokens), refuses every write (`POST=0`), has no `CONTAINERS`, and lives on the internal overlay network `ops_docker` shared only with ops-mcp. Note that `GET /services` returns service environment variables: anything that can reach the proxy can read them, which is why the network is internal and ops-mcp sanitizes and redacts secret-shaped strings from results.
 
 ## Rollback by hand
 

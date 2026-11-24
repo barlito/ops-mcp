@@ -43,7 +43,7 @@ stack_projects: {obs: observability-stack}   # exceptions to the fr.barlito.repo
 
 `config/registry.yaml` (prod) and `config/registry.local.yaml` (local) are committed (private repo) and mounted as a Swarm config named `ops_registry_<sha1>`.
 
-Docker API access goes through `dockerproxy-ops` (docker-socket-proxy: read-only endpoints for services, tasks, nodes, info, version, swarm; no containers) on an internal overlay network.
+Docker API access goes through `dockerproxy-ops` (docker-socket-proxy: read-only endpoints for services, tasks, nodes, info, version; no containers) on an internal overlay network.
 
 ## Local development
 

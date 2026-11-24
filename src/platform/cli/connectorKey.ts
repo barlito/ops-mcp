@@ -5,12 +5,13 @@ import { parseArgs as nodeParseArgs } from "node:util";
 import { CONNECTOR_HEADER } from "../auth/connectorKeys";
 import { CredentialError } from "../auth/tokens";
 import { claudeAddCommand, mcpUrl } from "../mcpCommand";
+import { readSecret } from "../util";
 import { fail, openCli } from "./context";
 
 type Cli = ReturnType<typeof openCli>;
 
 // Returns the text to print; throws Error with a clear message on failure.
-export function run(cli: Cli, argv: string[], secret = process.env.ADMIN_WEB_SECRET || undefined): string {
+export function run(cli: Cli, argv: string[], secret = readSecret("ADMIN_WEB_SECRET")): string {
   const { values, positionals } = nodeParseArgs({ args: argv, allowPositionals: true, options: { name: { type: "string" }, id: { type: "string" } } });
   switch (positionals[0]) {
     case "create": {

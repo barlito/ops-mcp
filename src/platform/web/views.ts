@@ -1,5 +1,4 @@
 // vendored from second-brain-mcp@d4ba1c5
-// Page renderers for the web admin UI. Every dynamic value goes through html`` (escaped).
 import { APP_VERSION } from "../../version";
 import { html, raw, SafeHtml } from "./html";
 

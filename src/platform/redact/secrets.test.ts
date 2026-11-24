@@ -1,7 +1,7 @@
 // vendored from second-brain-mcp@d4ba1c5
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findSecret, redactSecrets } from "./secrets";
+import { findSecret, redactAll, redactSecrets } from "./secrets";
 
 const b64 = (n: number): string => "Ab3_-".repeat(Math.ceil(n / 5)).slice(0, n);
 const kind = (s: string): string | undefined => findSecret(s)?.kind;
@@ -73,4 +73,9 @@ test("redactSecrets replaces every secret-shaped match and leaves the rest alone
   const out = redactSecrets(text);
   assert.equal(out, "before [REDACTED GitHub token] middle [REDACTED AWS access key id] after\nsecond [REDACTED GitHub token]");
   assert.equal(redactSecrets("nothing to see"), "nothing to see");
+});
+
+test("redactAll strips URL credentials and secret-shaped strings", () => {
+  const gh = "ghp_" + "a".repeat(36);
+  assert.equal(redactAll(`GET https://user:pw@host/x with ${gh}`), "GET https://***@host/x with [REDACTED GitHub token]");
 });

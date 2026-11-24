@@ -17,13 +17,12 @@ import { AuthFailureLimiter, createShutdown, createTrustedProxy, jsonRpcError, L
 import { listen } from "./platform/listen";
 import { ipKey, RateLimiter } from "./platform/rateLimit";
 import { SlotLimiter } from "./platform/slotLimiter";
-import { errorMessage, redact } from "./platform/util";
+import { errorMessage } from "./platform/util";
+import { redactAll } from "./platform/redact/secrets";
 import { loadRegistry, RegistryError } from "./registry";
-import type { ToolDeps } from "./tools/contract";
+import type { ToolDeps, ToolGuard } from "./tools/contract";
 
 export const BODY_LIMIT = "1mb";
-// Max messages in one JSON-RPC batch POST.
-export const MAX_JSONRPC_BATCH = 10;
 
 export interface AppOptions {
   db: Db;
@@ -35,10 +34,10 @@ export interface AppOptions {
   trustedProxy?: TrustedProxy;
   authLimiter?: AuthFailureLimiter;
   authAudit?: AuthFailureAudit;
-  // Authenticated calls per credential per minute / concurrent requests (total, per client).
+  // Tool calls per credential per minute / concurrent tool calls (total, per credential).
   callLimiter?: RateLimiter;
   slots?: SlotLimiter;
-  maxConcurrentPerClient?: number;
+  maxConcurrentPerCredential?: number;
 }
 
 const posInt = (v: string | undefined, d: number): number => (v && Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : d);
@@ -90,8 +89,9 @@ export function createApp(opts: AppOptions): Express {
   const authAudit = opts.authAudit ?? new AuthFailureAudit(opts.audit, posInt(process.env.AUTH_AUDIT_MAX_PER_MIN, 30));
   const calls = opts.callLimiter ?? new RateLimiter(posInt(process.env.MCP_CALLS_PER_MIN, 300), 60_000);
   const slots = opts.slots ?? new SlotLimiter(posInt(process.env.MCP_MAX_CONCURRENT, 16));
-  const perClient = opts.maxConcurrentPerClient ?? posInt(process.env.MCP_MAX_CONCURRENT_PER_CLIENT, 8);
+  const perCredential = opts.maxConcurrentPerCredential ?? posInt(process.env.MCP_MAX_CONCURRENT_PER_CREDENTIAL, 8);
   const auth = makeAuth(opts, limiter, authAudit);
+  const guard: ToolGuard = { calls, slots, maxPerCredential: perCredential, track: () => lifecycle.track() };
 
   const app = express();
   app.disable("x-powered-by");
@@ -116,24 +116,15 @@ export function createApp(opts: AppOptions): Express {
     next();
   });
 
-  // Body parsing only after auth and throttling.
+  // Body parsing only after auth.
   const body = express.json({ limit: BODY_LIMIT });
-  app.use("/mcp", auth, (req, res, next) => {
-    const ctx = res.locals.auth as AuthContext;
-    if (!calls.hit(ctx.credentialId)) return jsonRpcError(res, 429, -32000, "Too many requests");
-    const release = slots.acquire([[ipKey(req.ip), perClient]]);
-    if (!release) return jsonRpcError(res, 429, -32000, "Too many concurrent requests");
-    res.once("finish", release);
-    res.once("close", release);
-    body(req, res, next);
-  });
+  app.use("/mcp", auth, body);
 
   // Stateless Streamable HTTP: a fresh McpServer + transport per request.
   app.post("/mcp", async (req, res) => {
-    if (Array.isArray(req.body) && req.body.length > MAX_JSONRPC_BATCH) {
-      return jsonRpcError(res, 400, -32600, `Invalid Request: batch too large (max ${MAX_JSONRPC_BATCH} messages)`);
-    }
-    const server = createMcpServer(opts.tools, res.locals.auth as AuthContext);
+    // Batching was removed from the protocol (2025-06-18) and would multiply every per-call limit.
+    if (Array.isArray(req.body)) return jsonRpcError(res, 400, -32600, "Invalid Request: JSON-RPC batches are not supported");
+    const server = createMcpServer({ ...opts.tools, guard }, res.locals.auth as AuthContext);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     let cleanedUp = false;
     const cleanup = (): void => {
@@ -250,7 +241,7 @@ export async function start(): Promise<{ server: Server; shutdown: (signal?: str
 // Guard so this module can be imported for testing without binding a port.
 if (require.main === module) {
   start().catch((err) => {
-    console.error("fatal:", redact(errorMessage(err)));
+    console.error("fatal:", redactAll(errorMessage(err)));
     process.exit(1);
   });
 }

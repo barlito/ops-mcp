@@ -1,6 +1,7 @@
 // vendored from second-brain-mcp@d4ba1c5
 import type { Db } from "./db";
-import { errorMessage, redact } from "./util";
+import { errorMessage } from "./util";
+import { redactAll } from "./redact/secrets";
 
 export interface AuditEntry {
   credentialId: string | null;
@@ -46,6 +47,8 @@ export const MAX_FIELD_LEN = 256;
 export const MAX_PRUNE_DAYS = 36500;
 export const AUDIT_PAGE_SIZE = 50;
 
+const redactText = (v: string | undefined): string | undefined => (v === undefined ? v : redactAll(v));
+
 function cap(v: string | null | undefined): string | null {
   if (v == null) return null;
   return v.length > MAX_FIELD_LEN ? v.slice(0, MAX_FIELD_LEN) : v;
@@ -75,13 +78,13 @@ export class AuditLog {
       cap(e.server),
       cap(e.stack),
       cap(e.service),
-      cap(e.query),
+      cap(redactText(e.query)),
       cap(e.queryHash),
       cap(e.window),
       e.resultBytes ?? null,
       e.truncated === undefined ? null : e.truncated ? 1 : 0,
       cap(e.result),
-      cap(e.detail),
+      cap(redactText(e.detail)),
       cap(e.clientIp),
     );
   }
@@ -91,7 +94,7 @@ export class AuditLog {
     try {
       this.log(e);
     } catch (err) {
-      console.error(`audit write failed (tool=${e.tool} result=${e.result}): ${redact(errorMessage(err))}`);
+      console.error(`audit write failed (tool=${e.tool} result=${e.result}): ${redactAll(errorMessage(err))}`);
     }
   }
 

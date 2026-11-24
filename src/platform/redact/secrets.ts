@@ -1,5 +1,7 @@
 // vendored from second-brain-mcp@d4ba1c5
 // Obvious-secret detector: only distinctive prefixes/shapes, linear-time regexes, first hit wins.
+import { redact } from "../util";
+
 const B = String.raw`(?<![\w-])`;
 const PATTERNS: [string, RegExp][] = [
   ["GitHub token", new RegExp(String.raw`${B}gh[pousr]_[A-Za-z0-9]{36,}`)],
@@ -32,4 +34,9 @@ export function redactSecrets(text: string): string {
   let out = text;
   for (const [kind, re] of PATTERNS) out = out.replace(new RegExp(re.source, `${re.flags}g`), `[REDACTED ${kind}]`);
   return out;
+}
+
+// URL credentials and secret-shaped strings: the one function for anything logged, audited or returned.
+export function redactAll(text: string): string {
+  return redactSecrets(redact(text));
 }

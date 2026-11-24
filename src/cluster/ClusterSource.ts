@@ -1,6 +1,10 @@
 import type { ServerEntry } from "../registry";
 import { LocalDockerSource } from "./LocalDockerSource";
 
+export interface CallOptions {
+  signal?: AbortSignal;
+}
+
 export interface ClusterInfo {
   reachable: boolean;
   dockerVersion?: string;
@@ -10,7 +14,7 @@ export interface ClusterInfo {
 
 // Read-only view of one server's cluster. Phase 2 adds the Swarm listing methods.
 export interface ClusterSource {
-  info(): Promise<ClusterInfo>;
+  info(opts?: CallOptions): Promise<ClusterInfo>;
 }
 
 export type ClusterSourceProvider = (server: ServerEntry) => ClusterSource;

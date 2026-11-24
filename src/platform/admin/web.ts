@@ -1,8 +1,5 @@
 // vendored from second-brain-mcp@d4ba1c5
-// Web admin UI listener. Reachable only through Traefik + Authelia: identity headers are trusted solely
-// from a peer in TRUSTED_PROXY that also presents the Traefik-injected X-Ops-Admin-Proxy secret, the user
-// must be in ADMIN_GROUP, and every POST needs a same-host Origin/Referer, a session-bound HMAC CSRF
-// token and a one-time form nonce.
+// Identity headers are trusted only from a TRUSTED_PROXY peer that presents the Traefik-injected proxy secret.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Server } from "node:http";
 import express, { Express, NextFunction, Request, Response } from "express";
@@ -12,7 +9,8 @@ import { CredentialError, TokenStore } from "../auth/tokens";
 import type { Lifecycle, TrustedProxy } from "../http";
 import { listen } from "../listen";
 import { claudeAddCommand, mcpUrl } from "../mcpCommand";
-import { errorMessage, redact } from "../util";
+import { errorMessage, readSecret } from "../util";
+import { redactAll } from "../redact/secrets";
 import type { SafeHtml } from "../web/html";
 import { CSS, ICON_SVG, JS, THEME_JS } from "../web/assets";
 import { auditView } from "../web/auditView";
@@ -344,7 +342,7 @@ export function createWebAdminApp(opts: WebAdminOptions): Express {
   app.use((_req, res) => void send(res, errorView(ctxOf(res), 404, "Page not found."), 404));
   // Never leak internals; the real reason goes to the log only.
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    console.error(`web admin error: ${redact(errorMessage(err))}`);
+    console.error(`web admin error: ${redactAll(errorMessage(err))}`);
     if (res.headersSent) return;
     const e = err as { type?: string };
     if (e.type === "entity.too.large") return void send(res, errorView(ctxOf(res), 413, "Request too large."), 413);
@@ -366,7 +364,7 @@ export async function startWebAdmin(
     console.error("web admin disabled: TRUSTED_PROXY is not set (identity headers cannot be trusted without it)");
     return undefined;
   }
-  const proxySecret = env.ADMIN_PROXY_SECRET ?? "";
+  const proxySecret = readSecret("ADMIN_PROXY_SECRET", env) ?? "";
   if (proxySecret.length < MIN_PROXY_SECRET) {
     console.error(`web admin disabled: ADMIN_PROXY_SECRET must be set (at least ${MIN_PROXY_SECRET} characters)`);
     return undefined;
@@ -376,7 +374,7 @@ export async function startWebAdmin(
       ...deps,
       trustedProxy,
       adminGroup: env.ADMIN_GROUP || DEFAULT_ADMIN_GROUP,
-      secret: env.ADMIN_WEB_SECRET || undefined,
+      secret: readSecret("ADMIN_WEB_SECRET", env),
       proxySecret,
       sessionCookie: env.AUTHELIA_SESSION_COOKIE || undefined,
     });

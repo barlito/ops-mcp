@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TaskSchema } from "../cluster/types";
-import { ToolError, decodeCursor, defineTool, encodeCursor, envelopeSchema, limitParam, resolveServers, cursorParam } from "./contract";
+import { ToolError, decodeCursor, defineTool, encodeCursor, envelopeSchema, limitParam, resolveServers, cursorParam, scopeShape } from "./contract";
 
 const TASK_STATES = ["new", "pending", "assigned", "accepted", "preparing", "ready", "starting", "running", "complete", "failed", "shutdown", "rejected", "orphaned", "remove"] as const;
 type Item = z.infer<typeof TaskSchema>;
@@ -12,9 +12,9 @@ export const opsListTasks = defineTool({
   description:
     "List the Swarm tasks (container instances) of a stack or a service, newest first, with state, desired state, error message, exit code, node and timestamps. Use it to see why replicas are missing or restarting (failed, rejected) and when it started; filter with state=failed. Give stack or service.",
   inputSchema: z.object({
-    server: z.string().describe("Server slug (see ops_list_servers)."),
-    stack: z.string().optional().describe("Swarm stack name."),
-    service: z.string().optional().describe("Full Swarm service name, e.g. carapp_php."),
+    server: scopeShape.server.unwrap().describe("Server slug (see ops_list_servers)."),
+    stack: scopeShape.stack,
+    service: scopeShape.service,
     state: z.enum(TASK_STATES).optional().describe("Only tasks currently in this state."),
     limit: limitParam(20, 50),
     cursor: cursorParam,

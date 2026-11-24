@@ -1,11 +1,11 @@
-import { redactSecrets } from "../platform/redact/secrets";
+import { redactAll } from "../platform/redact/secrets";
 
 export const MAX_LINE_CHARS = 400;
 const REDACT_INPUT_CHARS = 4000;
 
 // Redacts first, then truncates, so a secret is never cut in half; the pre-slice bounds regex work.
 export function cleanLine(line: string, max = MAX_LINE_CHARS): string {
-  const out = redactSecrets(line.slice(0, REDACT_INPUT_CHARS));
+  const out = redactAll(line.slice(0, REDACT_INPUT_CHARS));
   return out.length > max ? `${out.slice(0, max - 1)}…` : out;
 }
 

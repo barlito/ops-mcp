@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { z } from "zod";
 import { createClusterSource } from "../cluster/ClusterSource";
 import { sanitizeTask } from "../cluster/sanitize";
-import type { TaskInfo } from "../cluster/types";
+import type { ServiceSummary, TaskInfo } from "../cluster/types";
 import type { OverviewSection } from "../overview/section";
 import { swarmSection } from "../overview/swarmSection";
 import { FIXTURE_SECRETS, startDockerStub, stubRegistry } from "../test-support/dockerStub";
-import { connect, textOf } from "../test-support/mcp";
+import { connect, stubSource, textOf } from "../test-support/mcp";
+import { ToolError } from "./contract";
 import { TOOLS } from "./index";
 import { opsGetService } from "./opsGetService";
 import { opsListStacks } from "./opsListStacks";
@@ -49,7 +50,7 @@ test("ops_list_stacks resolves the project from the label, then the registry, an
   const r = await call("ops_list_stacks");
   assert.deepEqual(items(r), [
     { server: "ovh-prod-1", stack: "obs", project: "observability-stack", services: 1, state: "running", degraded: [], images: ["grafana/alloy:v1.4.0"], last_update: "2026-04-01T10:00:00.000Z" },
-    { server: "ovh-prod-1", stack: "shop", project: "barlito/shop", services: 2, state: "degraded", degraded: ["shop_web 0/1"], images: ["ghcr.io/barlito/shop:1.5.0"], last_update: "2026-06-01T11:42:10.552Z" },
+    { server: "ovh-prod-1", stack: "shop", project: "barlito/shop", services: 2, state: "degraded", degraded: ["shop_web 0/1"], images: ["ghcr.io/barlito/shop:1.4.2", "ghcr.io/barlito/shop:1.5.0"], last_update: "2026-06-01T11:42:10.552Z" },
   ]);
   assert.match(r.structuredContent?.summary as string, /^2 stacks, 1 degraded; failed: lab$/);
 });
@@ -66,7 +67,7 @@ test("ops_get_service returns the sanitized spec and the last tasks", async () =
   const r = await call("ops_get_service", { server: "ovh-prod-1", service: "shop_web" });
   const [s] = items(r);
   assert.equal(r.structuredContent?.summary, "shop_web 0/1 running, last update rollback_completed");
-  assert.deepEqual([s?.running, s?.desired, s?.image.tag, s?.previous_image.tag], [0, 1, "1.5.0", "1.4.2"]);
+  assert.deepEqual([s?.running, s?.desired, s?.image.tag, s?.previous_image], [0, 1, "1.4.2", undefined]);
   assert.deepEqual(s?.tasks.map((t: TaskInfo) => [t.state, t.error, t.exit_code]), [["failed", "task: non-zero exit (1)", 1], ["failed", "task: non-zero exit (1)", 1]]);
   assert.deepEqual(r.structuredContent?.scope, { server: "ovh-prod-1", service: "shop_web" });
 });
@@ -131,9 +132,9 @@ test("ops_recent_deploys lists updates in the window, newest first, with before/
     stack: "shop",
     at: "2026-06-01T11:42:10.552Z",
     state: "rollback_completed",
-    message: "rollback completed",
-    image: "ghcr.io/barlito/shop:1.5.0",
-    previous_image: "ghcr.io/barlito/shop:1.4.2",
+    message: "rollback completed; password=[REDACTED]",
+    image: "ghcr.io/barlito/shop:1.4.2",
+    failed_image: "ghcr.io/barlito/shop:1.5.0",
   });
   const one = await call("ops_recent_deploys", { since: "30d", limit: 1 });
   assert.deepEqual([items(one).length, one.structuredContent?.truncated], [1, true]);
@@ -144,12 +145,13 @@ test("ops_overview composes the swarm section per server and isolates unreachabl
   const r = await call("ops_overview");
   const [prod, lab] = items(r);
   assert.deepEqual(prod?.swarm, {
-    nodes: { total: 2, not_ready: ["ovh-prod-2"] },
+    nodes: { total: 2, not_ready_total: 1, not_ready: ["ovh-prod-2"] },
     stacks: 2,
+    degraded_total: 1,
     degraded_services: [{ service: "shop_web", running: 0, desired: 1 }],
     failed_tasks_total: 3,
     failed_tasks: [
-      { service: "shop_worker", error: "no suitable node (scheduling constraints not satisfied on 1 node)", at: "2026-06-01T11:59:01.000Z" },
+      { service: "shop_worker", error: "no suitable node (scheduling constraints not satisfied on 1 node); token=[REDACTED]", at: "2026-06-01T11:59:01.000Z" },
       { service: "shop_web", error: "task: non-zero exit (1)", exit_code: 1, at: "2026-06-01T11:58:04.500Z" },
       { service: "shop_web", error: "task: non-zero exit (1)", exit_code: 1, at: "2026-06-01T11:57:04.500Z" },
     ],
@@ -180,7 +182,7 @@ test("ops_overview: a failing or silent section is noted, the others still answe
   assert.ok(!r.isError);
   const [prod] = items(r);
   assert.ok(prod?.swarm.nodes);
-  assert.deepEqual(prod?.errors, { logs: "loki down", metrics: "no data for this server" });
+  assert.deepEqual(prod?.errors, { logs: "cluster source failed", metrics: "no data for this server" });
   assert.match(r.structuredContent?.summary as string, /logs: unavailable; metrics: ok/);
 });
 
@@ -190,4 +192,76 @@ test("the Swarm tools are read-only and advertise the untrusted-data notice", as
     assert.equal(t.annotations?.readOnlyHint, true);
     assert.match(t.description ?? "", /untrusted data/);
   }
+});
+
+const summary = (over: Partial<ServiceSummary>): ServiceSummary => ({
+  id: "id",
+  name: "app_web",
+  stack: "app",
+  mode: "replicated",
+  desired: 1,
+  running: 1,
+  image: { name: "app", tag: "1" },
+  labels: {},
+  created_at: "2026-06-01T11:00:00.000Z",
+  updated_at: "2026-06-01T11:30:00.000Z",
+  ...over,
+});
+
+test("ops_recent_deploys skips a service removed meanwhile and notes other lookup failures", async () => {
+  const listed = [summary({ id: "gone", name: "a_gone" }), summary({ id: "boom", name: "a_boom" }), summary({ id: "ok", name: "a_ok" })];
+  const { call } = await connect([opsRecentDeploys], {
+    cluster: () =>
+      stubSource({
+        listServices: async () => listed,
+        serviceUpdateHistory: async (id) => {
+          if (id === "gone") throw new ToolError("not_found", "gone");
+          if (id === "boom") throw new ToolError("server_unreachable", "x");
+          return { service: "a_ok", created_at: "", updated_at: "2026-06-01T11:30:00.000Z", image: { name: "app", tag: "1" } };
+        },
+      }),
+  });
+  const r = await call("ops_recent_deploys", { server: "ovh-prod-1" });
+  assert.ok(!r.isError);
+  assert.deepEqual(items(r).map((d) => d.service), ["a_ok"]);
+  assert.match(r.structuredContent?.summary as string, /; 1 lookup failed$/);
+});
+
+test("ops_list_stacks does not read inherited keys of stack_projects", async () => {
+  const { call } = await connect([opsListStacks], { cluster: () => stubSource({ listServices: async () => [summary({ stack: "constructor", name: "constructor_web" })] }) });
+  assert.equal(items(await call("ops_list_stacks", { server: "ovh-prod-1" }))[0]?.project, null);
+});
+
+test("scope parameters are bounded plain names", async () => {
+  const { call } = await connect([opsGetService, opsListTasks], { cluster: () => stubSource() });
+  for (const [tool, args] of [
+    ["ops_get_service", { server: "ovh-prod-1", service: "a".repeat(129) }],
+    ["ops_get_service", { server: "ovh-prod-1", service: "../info" }],
+    ["ops_list_tasks", { server: "ovh-prod-1", stack: "a/b" }],
+    ["ops_list_tasks", { server: "x".repeat(129), service: "a" }],
+  ] as const) {
+    const r = await call(tool, args).catch(() => ({ isError: true }));
+    assert.ok(r.isError, `${tool} ${JSON.stringify(args).slice(0, 60)}`);
+  }
+});
+
+test("ops_get_service looks the tasks up by the resolved service id", async () => {
+  let taskFilter: unknown;
+  const { call } = await connect([opsGetService], {
+    cluster: () =>
+      stubSource({
+        getService: async () => ({ ...summary({ id: "full-id-123" }), networks: [], constraints: [], ports: [], routes: [], secrets: [], configs: [] }),
+        listTasks: async (filter) => ((taskFilter = filter), []),
+      }),
+  });
+  assert.ok(!(await call("ops_get_service", { server: "ovh-prod-1", service: "full" })).isError);
+  assert.deepEqual(taskFilter, { service: "full-id-123" });
+});
+
+test("ops_overview caps the lists it embeds and keeps their totals", async () => {
+  const many = Array.from({ length: 40 }, (_, i) => summary({ id: `s${i}`, name: `app_s${i}`, running: 0, desired: 1 }));
+  const nodes = Array.from({ length: 30 }, (_, i) => ({ id: `n${i}`, hostname: `h${i}`, role: "worker", availability: "active", state: "down", leader: false }));
+  const { call } = await connect([overviewTool([swarmSection])], { cluster: () => stubSource({ listNodes: async () => nodes, listServices: async () => many, listTasks: async () => [] }) });
+  const swarm = items(await call("ops_overview", { server: "ovh-prod-1" }))[0]?.swarm;
+  assert.deepEqual([swarm.degraded_total, swarm.degraded_services.length, swarm.nodes.not_ready_total, swarm.nodes.not_ready.length], [40, 10, 30, 10]);
 });

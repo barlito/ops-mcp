@@ -99,3 +99,35 @@ test("redactAll strips URL credentials and secret-shaped strings", () => {
   const gh = "ghp_" + "a".repeat(36);
   assert.equal(redactAll(`GET https://user:pw@host/x with ${gh}`), "GET https://***@host/x with [REDACTED GitHub token]");
 });
+
+test("redactSecrets: colon pairs, uppercase prefixes, api keys, Token scheme and passwords containing @", () => {
+  assert.equal(redactSecrets("password: hunter2 access_token: abc"), "password: [REDACTED] access_token: [REDACTED]");
+  assert.equal(redactSecrets("PGPASSWORD=foo MYSQL_ROOT_PASSWORD=bar"), "PGPASSWORD=[REDACTED] MYSQL_ROOT_PASSWORD=[REDACTED]");
+  assert.equal(redactSecrets("api_key=k1 X-Api-Key: k2 apikey=k3"), "api_key=[REDACTED] X-Api-Key: [REDACTED] apikey=[REDACTED]");
+  assert.equal(redactSecrets("Authorization: Token abcdef123"), "Authorization: Token [REDACTED]");
+  assert.equal(redactSecrets("dsn mysql://u:p@ss@h/db and amqp://guest:g@h:5672"), "dsn mysql://u:[REDACTED]@h/db and amqp://guest:[REDACTED]@h:5672");
+  assert.equal(redactSecrets('{"password":"[REDACTED]"}'), '{"password":"[REDACTED]"}');
+  assert.equal(redactSecrets("tokens=5 passwordless login mypassword=1"), "tokens=5 passwordless login mypassword=1");
+});
+
+test("redaction stays linear on 64 KB adversarial inputs", () => {
+  const n = 64 * 1024;
+  const inputs = [
+    "a.".repeat(n / 2),
+    `eyJ${"a".repeat(n)}`,
+    "eyJaaaaaaaaa.".repeat(n / 14),
+    "eyJaaaaaaaaa.eyJaaaaaaaaa.".repeat(n / 26),
+    "password=".repeat(n / 9),
+    'password="'.repeat(n / 10),
+    "://".repeat(n / 3),
+    "a://u:".repeat(n / 6),
+    "bearer ".repeat(n / 7),
+    "Authorization: ".repeat(n / 15),
+    '"password": "'.repeat(n / 13),
+    "x".repeat(n),
+  ];
+  const t = performance.now();
+  for (const input of inputs) redactAll(input);
+  const ms = performance.now() - t;
+  assert.ok(ms < 50, `took ${ms.toFixed(0)} ms`);
+});

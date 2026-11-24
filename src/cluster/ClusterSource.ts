@@ -6,6 +6,11 @@ export interface CallOptions {
   signal?: AbortSignal;
 }
 
+// Lists the caller already fetched, to spare listTasks a second round trip for the same data.
+export interface TaskOptions extends CallOptions {
+  known?: { services: ServiceSummary[]; nodes: NodeInfo[] };
+}
+
 export interface ClusterInfo {
   reachable: boolean;
   dockerVersion?: string;
@@ -22,7 +27,7 @@ export interface ClusterSource {
   listServices(filter?: ServiceFilter, opts?: CallOptions): Promise<ServiceSummary[]>;
   getService(idOrName: string, opts?: CallOptions): Promise<ServiceDetail>;
   // Newest first.
-  listTasks(filter: TaskFilter, opts?: CallOptions): Promise<TaskInfo[]>;
+  listTasks(filter: TaskFilter, opts?: TaskOptions): Promise<TaskInfo[]>;
   serviceUpdateHistory(idOrName: string, opts?: CallOptions): Promise<ServiceUpdate>;
 }
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { groupStacks, imageLabel, isDegraded } from "../cluster/swarm";
+import { groupStacks, imageLabel, isDegraded, timeOf } from "../cluster/swarm";
 import { REPO_LABEL } from "../cluster/types";
 import { defineTool, envelopeSchema, resolveServers, scopeShape } from "./contract";
 import { failureNote, fanOut } from "./fanOut";
@@ -31,12 +31,12 @@ export const opsListStacks = defineTool({
         return {
           server: server.slug,
           stack: stack.name,
-          project: stack.services.find((s) => s.labels[REPO_LABEL])?.labels[REPO_LABEL] ?? ctx.registry.stack_projects[stack.name] ?? null,
+          project: stack.services.find((s) => s.labels[REPO_LABEL])?.labels[REPO_LABEL] ?? (Object.hasOwn(ctx.registry.stack_projects, stack.name) ? ctx.registry.stack_projects[stack.name] : undefined) ?? null,
           services: stack.services.length,
           state: degraded.length === 0 ? ("running" as const) : ("degraded" as const),
           degraded,
           images: [...new Set(stack.services.map((s) => imageLabel(s.image)))].sort(),
-          last_update: stack.services.map((s) => s.updated_at).sort().at(-1) ?? "",
+          last_update: stack.services.reduce((latest, s) => (timeOf(s.updated_at) > timeOf(latest) ? s.updated_at : latest), ""),
         };
       }),
     );

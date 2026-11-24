@@ -35,7 +35,7 @@ async function countRows(loki: LokiApi, scope: ScopeParams, levels: ReturnType<t
 export const opsLogsSummary = defineTool({
   name: "ops_logs_summary",
   description:
-    "Start here for log triage: line counts per service and level at or above level_min, plus the top recurring error patterns (ids, numbers and addresses normalised) with first/last seen and one redacted example. Counts cover the window (capped at 7d), patterns the last 24h of it.",
+    "Start here for log triage: line counts per service and level at or above level_min, plus the top recurring error patterns (ids, numbers and addresses normalised) with first/last seen (within the sample) and one redacted example. Counts cover the window (capped at 7d), patterns the last 24h of it.",
   inputSchema: z.object({
     ...scopeShape,
     level_min: z.enum(LEVELS).default("warn").describe("Lowest level counted (default warn)."),

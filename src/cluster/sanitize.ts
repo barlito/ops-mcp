@@ -1,5 +1,5 @@
 import { redactSecrets } from "../platform/redact/secrets";
-import { imageLabel } from "./swarm";
+import { imageLabel, timeOf } from "./swarm";
 import {
   type ImageRef,
   type NodeInfo,
@@ -65,18 +65,27 @@ export interface RawNode {
   ManagerStatus?: { Leader?: boolean };
 }
 
-const SENSITIVE_NAME = String.raw`[\w.-]*(?:pass|secret|token|key|dsn|credential|auth)[\w.-]*`;
+// Bounded quantifiers and bounded inputs: these run on untrusted text.
+const SENSITIVE_NAME = String.raw`[\w.-]{0,64}(?:pass|secret|token|key|dsn|credential|auth)[\w.-]{0,64}`;
 const KEY_VALUE = new RegExp(`(${SENSITIVE_NAME}=)\\S+`, "gi");
 const SENSITIVE_FLAG = new RegExp(`^--?${SENSITIVE_NAME}$`, "i");
-const URL_USERINFO = /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
-const MAX_LABEL_CHARS = 200;
+const URL_USERINFO = /(\b[a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/@]{1,128}@/gi;
+const MAX_TEXT_CHARS = 500;
+const MAX_ERROR_CHARS = 300;
+const MAX_ARG_CHARS = 100;
+const MAX_LABEL_CHARS = 120;
+const MAX_LABEL_KEY_CHARS = 100;
+const MAX_LABELS = 15;
+const MAX_ARGS = 20;
+const MAX_LIST = 10;
 const SHORT_ID = 12;
 const SHORT_DIGEST = "sha256:".length + 12;
 const ALLOWED_LABEL_PREFIXES = ["com.docker.", "fr.barlito."];
 const ROUTER_RULE = /^traefik\.(?:http|tcp)\.routers\.(.+)\.rule$/;
 
-export function redactText(text: string): string {
-  return redactSecrets(text.replace(URL_USERINFO, "$1[REDACTED]@").replace(KEY_VALUE, "$1[REDACTED]"));
+// Truncates first: the output is bounded and the regexes never see more than `max` chars.
+export function redactText(text: string, max = MAX_TEXT_CHARS): string {
+  return redactSecrets(text.slice(0, max).replace(URL_USERINFO, "$1[REDACTED]@").replace(KEY_VALUE, "$1[REDACTED]"));
 }
 
 // A sensitive flag given without `=` hides the next argument too.
@@ -87,19 +96,20 @@ export function redactArgs(args: string[]): string[] {
       maskNext = false;
       return "[REDACTED]";
     }
-    maskNext = SENSITIVE_FLAG.test(arg);
-    return maskNext ? arg : redactText(arg);
-  });
+    const flag = arg.length <= 140 && SENSITIVE_FLAG.test(arg);
+    maskNext = flag;
+    return flag ? arg : redactText(arg, MAX_ARG_CHARS);
+  }).slice(0, MAX_ARGS);
 }
 
 export function filterLabels(...sources: Array<Record<string, string> | undefined>): Record<string, string> {
   const merged: Record<string, string> = {};
   for (const source of sources) {
     for (const [key, value] of Object.entries(source ?? {})) {
-      if (ALLOWED_LABEL_PREFIXES.some((p) => key.startsWith(p))) merged[key] = redactText(value).slice(0, MAX_LABEL_CHARS);
+      if (ALLOWED_LABEL_PREFIXES.some((p) => key.startsWith(p))) merged[key.slice(0, MAX_LABEL_KEY_CHARS)] = redactText(value, MAX_LABEL_CHARS);
     }
   }
-  return merged;
+  return Object.fromEntries(Object.entries(merged).slice(0, MAX_LABELS));
 }
 
 // Router names and Host() rules only; middlewares (basicauth users, ...) are dropped.
@@ -108,8 +118,8 @@ export function traefikRoutes(labels: Record<string, string> = {}): Array<{ rout
   for (const [key, rule] of Object.entries(labels)) {
     const router = ROUTER_RULE.exec(key)?.[1];
     if (router === undefined) continue;
-    const hosts = [...rule.matchAll(/Host\(([^)]*)\)/g)].flatMap((m) => [...(m[1] ?? "").matchAll(/`([^`]+)`/g)].map((h) => h[1]!));
-    routes.push({ router, hosts });
+    const hosts = [...rule.slice(0, 1000).matchAll(/Host\(([^)]*)\)/g)].flatMap((m) => [...(m[1] ?? "").matchAll(/`([^`]+)`/g)].map((h) => h[1]!.slice(0, 100)));
+    routes.push({ router: router.slice(0, 64), hosts: hosts.slice(0, MAX_LIST) });
   }
   return routes;
 }
@@ -138,7 +148,7 @@ function updateStatusOf(raw: RawService["UpdateStatus"]): UpdateStatus | undefin
   if (!raw?.State) return undefined;
   return {
     state: raw.State,
-    ...(raw.Message ? { message: redactText(raw.Message) } : {}),
+    ...(raw.Message ? { message: redactText(raw.Message, MAX_ERROR_CHARS) } : {}),
     ...(raw.StartedAt ? { started_at: raw.StartedAt } : {}),
     ...(raw.CompletedAt ? { completed_at: raw.CompletedAt } : {}),
   };
@@ -186,19 +196,19 @@ export function sanitizeServiceDetail(raw: RawService, status?: RawService["Serv
     ...sanitizeServiceSummary(raw, status),
     ...(updateStatus ? { update_status: updateStatus } : {}),
     ...(previous ? { previous_image: parseImage(previous) } : {}),
-    networks: (template?.Networks ?? []).flatMap((n) => (n.Target ? [n.Target.slice(0, SHORT_ID)] : [])),
-    constraints: template?.Placement?.Constraints ?? [],
+    networks: (template?.Networks ?? []).flatMap((n) => (n.Target ? [n.Target.slice(0, SHORT_ID)] : [])).slice(0, MAX_LIST),
+    constraints: (template?.Placement?.Constraints ?? []).slice(0, MAX_LIST).map((c) => redactText(c, MAX_ARG_CHARS)),
     ...(limits ? { limits } : {}),
     ...(reservations ? { reservations } : {}),
-    ports: (raw.Endpoint?.Ports ?? []).map((p) => ({
+    ports: (raw.Endpoint?.Ports ?? []).slice(0, MAX_LIST).map((p) => ({
       protocol: p.Protocol ?? "tcp",
       target: p.TargetPort ?? 0,
       ...(p.PublishedPort === undefined ? {} : { published: p.PublishedPort }),
       ...(p.PublishMode ? { mode: p.PublishMode } : {}),
     })),
-    routes: traefikRoutes(raw.Spec?.Labels),
-    secrets: (container?.Secrets ?? []).flatMap((s) => (s.SecretName ? [s.SecretName] : [])),
-    configs: (container?.Configs ?? []).flatMap((c) => (c.ConfigName ? [c.ConfigName] : [])),
+    routes: traefikRoutes(raw.Spec?.Labels).slice(0, MAX_LIST),
+    secrets: (container?.Secrets ?? []).flatMap((s) => (s.SecretName ? [s.SecretName.slice(0, 100)] : [])).slice(0, MAX_LIST),
+    configs: (container?.Configs ?? []).flatMap((c) => (c.ConfigName ? [c.ConfigName.slice(0, 100)] : [])).slice(0, MAX_LIST),
     ...(container?.Command ? { command: redactArgs(container.Command) } : {}),
     ...(container?.Args ? { args: redactArgs(container.Args) } : {}),
   };
@@ -219,6 +229,19 @@ export function sanitizeUpdate(raw: RawService): ServiceUpdate {
   };
 }
 
+// An automatic rollback restores the old spec and clears PreviousSpec: the version that failed is
+// only visible in the most recent failed task running a different image.
+export function failedImage(tasks: RawTask[], current: ImageRef): ImageRef | undefined {
+  const failed = tasks
+    .filter((t) => t.Status?.State === "failed" || t.Status?.State === "rejected")
+    .sort((a, b) => timeOf(b.Status?.Timestamp ?? b.UpdatedAt ?? "") - timeOf(a.Status?.Timestamp ?? a.UpdatedAt ?? ""));
+  for (const task of failed) {
+    const image = parseImage(task.Spec?.ContainerSpec?.Image);
+    if (image.name !== "" && (image.name !== current.name || image.tag !== current.tag)) return image;
+  }
+  return undefined;
+}
+
 export function sanitizeTask(raw: RawTask, serviceNames: ReadonlyMap<string, string>, nodeNames: ReadonlyMap<string, string>): TaskInfo {
   const exitCode = raw.Status?.ContainerStatus?.ExitCode;
   const node = raw.NodeID === undefined ? undefined : (nodeNames.get(raw.NodeID) ?? raw.NodeID.slice(0, SHORT_ID));
@@ -231,7 +254,7 @@ export function sanitizeTask(raw: RawTask, serviceNames: ReadonlyMap<string, str
     ...(image ? { image: imageLabel(parseImage(image)) } : {}),
     state: raw.Status?.State ?? "unknown",
     desired_state: raw.DesiredState ?? "unknown",
-    ...(raw.Status?.Err ? { error: redactText(raw.Status.Err) } : {}),
+    ...(raw.Status?.Err ? { error: redactText(raw.Status.Err, MAX_ERROR_CHARS) } : {}),
     ...(exitCode === undefined ? {} : { exit_code: exitCode }),
     created_at: raw.CreatedAt ?? "",
     updated_at: raw.Status?.Timestamp ?? raw.UpdatedAt ?? "",

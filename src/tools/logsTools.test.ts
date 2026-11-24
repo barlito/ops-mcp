@@ -4,6 +4,7 @@ import { LokiClient } from "../logs/LokiClient";
 import { FakeLoki, type FakeLine } from "../test-support/loki";
 import { connect, textOf } from "../test-support/mcp";
 import { logsSection } from "../overview/logsSection";
+import { overviewTool } from "./opsOverview";
 import { opsLogsContext } from "./opsLogsContext";
 import { opsLogsQuery } from "./opsLogsQuery";
 import { opsLogsQueryRaw } from "./opsLogsQueryRaw";
@@ -156,4 +157,15 @@ test("logs overview section: top error patterns per server, errors degrade to a 
 
   const broken = await logsSection.collect({ ...ctx, loki: new LokiClient({ url: "http://127.0.0.1:1" }) }, servers, { from: new Date(NOW - HOUR), to: new Date(NOW) });
   assert.match(broken.get("lab")!.error ?? "", /unreachable/);
+});
+
+test("ops_overview carries the logs part of every server", async () => {
+  const loki = new FakeLoki(lines(4, (i) => `level=error cache miss ${i}`));
+  const { call } = await connect([overviewTool([logsSection])], { loki });
+  const r = await call("ops_overview");
+  assert.ok(!r.isError, textOf(r));
+  const first = items(r)[0]!;
+  assert.equal(first.server, "ovh-prod-1");
+  assert.deepEqual(first.logs.patterns.map((p: { count: number; pattern: string }) => [p.count, p.pattern]), [[4, "level=error cache miss <n>"]]);
+  assert.match(env(r).summary, /ovh-prod-1: 1 error pattern/);
 });

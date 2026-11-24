@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test test.integration-metrics typecheck build deploy deploy.prod db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
+.PHONY: help install test test.integration test.integration-metrics typecheck build deploy deploy.prod db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
 
 stack_name=ops-mcp
 service=ops-mcp
@@ -63,6 +63,12 @@ typecheck: node_modules ## Typecheck sources and tests (in Docker)
 
 test: node_modules ## Run the test suite (in Docker)
 	$(NODE) npm test
+
+# Real Loki in a throwaway compose project (ops-mcp-it-logs), always torn down afterwards.
+export ITEST_ROOT := $(CURDIR)
+it_compose=docker compose -f test/integration/compose.yaml
+test.integration: node_modules ## Run the integration tests against a real Loki (in Docker)
+	trap '$(it_compose) down -v --remove-orphans' EXIT; $(it_compose) run --rm tests
 
 build: node_modules ## Compile TypeScript to dist/ (in Docker)
 	$(NODE) npm run build
@@ -211,5 +217,5 @@ test.integration-metrics: node_modules ## Run the metrics tools against a real, 
 	{ $(IT_METRICS) --profile backfill run --rm backfill \
 	  && $(IT_METRICS) up -d --wait prometheus \
 	  && docker run --rm -u $(HOST_UID):$(HOST_GID) -e HOME=/tmp/home -e PROM_URL=http://prometheus:9090 --network ops-mcp-it-metrics_default \
-	       -v $(CURDIR):$(CURDIR) -w $(CURDIR) $(NODE_IMAGE) npx tsx --test src/integration/metrics.it.ts; } || status=$$?; \
+	       -v $(CURDIR):$(CURDIR) -w $(CURDIR) $(NODE_IMAGE) npx tsx --test src/integration/promMetrics.itprom.ts; } || status=$$?; \
 	$(IT_METRICS) down -v --remove-orphans; rm -rf integration/metrics/work; exit $$status

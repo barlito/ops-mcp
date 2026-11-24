@@ -1,0 +1,63 @@
+[
+  {
+    "ID": "svc-shop-web",
+    "Version": { "Index": 4821 },
+    "CreatedAt": "2026-05-02T09:14:03.118Z",
+    "UpdatedAt": "2026-06-01T11:42:10.552Z",
+    "Spec": {
+      "Name": "shop_web",
+      "Labels": {
+        "com.docker.stack.namespace": "shop",
+        "fr.barlito.repo": "barlito/shop",
+        "traefik.http.middlewares.shop-auth.basicauth.users": "admin:$apr1$fakesalt$fakehash"
+      },
+      "TaskTemplate": {
+        "ContainerSpec": {
+          "Image": "ghcr.io/barlito/shop:1.5.0@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "Env": ["DATABASE_URL=postgresql://app:fake-db-password@db:5432/app", "APP_SECRET=fake-app-secret-for-tests", "SENTRY_DSN=https://fake-sentry-key@o1.ingest.sentry.io/2"]
+        }
+      },
+      "Mode": { "Replicated": { "Replicas": 1 } }
+    },
+    "ServiceStatus": { "RunningTasks": 0, "DesiredTasks": 1 }
+  },
+  {
+    "ID": "svc-shop-worker",
+    "Version": { "Index": 4700 },
+    "CreatedAt": "2026-05-02T09:14:04.000Z",
+    "UpdatedAt": "2026-05-20T08:00:00.000Z",
+    "Spec": {
+      "Name": "shop_worker",
+      "Labels": { "com.docker.stack.namespace": "shop", "fr.barlito.repo": "barlito/shop" },
+      "TaskTemplate": { "ContainerSpec": { "Image": "ghcr.io/barlito/shop:1.5.0", "Env": ["AMQP_URL=amqp://guest:fake-amqp-password@mq:5672"] } },
+      "Mode": { "Replicated": { "Replicas": 2 } }
+    },
+    "ServiceStatus": { "RunningTasks": 2, "DesiredTasks": 2 }
+  },
+  {
+    "ID": "svc-obs-alloy",
+    "Version": { "Index": 120 },
+    "CreatedAt": "2026-04-01T10:00:00.000Z",
+    "UpdatedAt": "2026-04-01T10:00:00.000Z",
+    "Spec": {
+      "Name": "obs_alloy",
+      "Labels": { "com.docker.stack.namespace": "obs" },
+      "TaskTemplate": { "ContainerSpec": { "Image": "grafana/alloy:v1.4.0" } },
+      "Mode": { "Global": {} }
+    },
+    "ServiceStatus": { "RunningTasks": 2, "DesiredTasks": 2 }
+  },
+  {
+    "ID": "svc-loose",
+    "Version": { "Index": 5 },
+    "CreatedAt": "2026-03-01T10:00:00.000Z",
+    "UpdatedAt": "2026-03-01T10:00:00.000Z",
+    "Spec": {
+      "Name": "loose",
+      "Labels": {},
+      "TaskTemplate": { "ContainerSpec": { "Image": "registry.example.com:5000/team/loose:edge" } },
+      "Mode": { "Replicated": { "Replicas": 0 } }
+    },
+    "ServiceStatus": { "RunningTasks": 0, "DesiredTasks": 0 }
+  }
+]

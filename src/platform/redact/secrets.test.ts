@@ -75,6 +75,26 @@ test("redactSecrets replaces every secret-shaped match and leaves the rest alone
   assert.equal(redactSecrets("nothing to see"), "nothing to see");
 });
 
+test("redactSecrets: DSN passwords, bearer/basic credentials and JWTs are replaced, context kept", () => {
+  assert.equal(redactSecrets("dial postgres://app:S3cretPass@db:5432/app failed"), "dial postgres://app:[REDACTED]@db:5432/app failed");
+  assert.equal(redactSecrets("amqp://:onlypass@mq/ and redis://cache:6379"), "amqp://:[REDACTED]@mq/ and redis://cache:6379");
+  assert.equal(redactSecrets("Authorization: Bearer abc.def-ghi_jkl"), "Authorization: Bearer [REDACTED]");
+  assert.equal(redactSecrets('authorization="Basic dXNlcjpwYXNz"'), 'authorization="Basic [REDACTED]"');
+  assert.equal(redactSecrets(`got Bearer ${"a1".repeat(15)} here`), "got Bearer [REDACTED] here");
+  assert.equal(redactSecrets("Bearer authentication is required, basic setup"), "Bearer authentication is required, basic setup");
+  const jwt = `eyJ${"a".repeat(20)}.eyJ${"b".repeat(20)}.${"c".repeat(20)}`;
+  assert.equal(redactSecrets(`jwt ${jwt} end`), "jwt [REDACTED JWT] end");
+});
+
+test("redactSecrets: password/secret/token pairs in query strings, key=value and JSON", () => {
+  assert.equal(redactSecrets("GET /cb?code=1&token=abc123&x=2"), "GET /cb?code=1&token=[REDACTED]&x=2");
+  assert.equal(redactSecrets('password="two words" pwd=hunter2 passwd=x'), 'password=[REDACTED] pwd=[REDACTED] passwd=[REDACTED]');
+  assert.equal(redactSecrets("DB_PASSWORD=abc client_secret=xyz"), "DB_PASSWORD=[REDACTED] client_secret=[REDACTED]");
+  assert.equal(redactSecrets('{"user":"bob","password":"p\\"w","api_token": "t0k"}'), '{"user":"bob","password":"[REDACTED]","api_token": "[REDACTED]"}');
+  assert.equal(redactSecrets("token=ghp_" + "a".repeat(36)), "token=[REDACTED]");
+  assert.equal(redactSecrets("tokens=5 passwordless login"), "tokens=5 passwordless login");
+});
+
 test("redactAll strips URL credentials and secret-shaped strings", () => {
   const gh = "ghp_" + "a".repeat(36);
   assert.equal(redactAll(`GET https://user:pw@host/x with ${gh}`), "GET https://***@host/x with [REDACTED GitHub token]");

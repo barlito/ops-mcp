@@ -19,6 +19,7 @@ import { ipKey, RateLimiter } from "./platform/rateLimit";
 import { SlotLimiter } from "./platform/slotLimiter";
 import { errorMessage } from "./platform/util";
 import { redactAll } from "./platform/redact/secrets";
+import { LokiClient } from "./logs/LokiClient";
 import { loadRegistry, RegistryError } from "./registry";
 import type { ToolDeps, ToolGuard } from "./tools/contract";
 
@@ -213,7 +214,7 @@ export async function start(): Promise<{ server: Server; shutdown: (signal?: str
   await trustedProxy.refresh();
 
   const lifecycle = new Lifecycle();
-  const app = createApp({ db, tokens, connectorKeys, audit, authAudit, lifecycle, trustedProxy, tools: { registry, audit, cluster: cachedClusterSources(), prom: new PromClient(process.env.PROM_URL || "http://prometheus:9090"), grafana: grafanaFromEnv(process.env) } });
+  const app = createApp({ db, tokens, connectorKeys, audit, authAudit, lifecycle, trustedProxy, tools: { registry, audit, cluster: cachedClusterSources(), loki: new LokiClient({ url: process.env.LOKI_URL }), prom: new PromClient(process.env.PROM_URL || "http://prometheus:9090"), grafana: grafanaFromEnv(process.env) } });
   let server: Server;
   try {
     server = await listen(app, port);

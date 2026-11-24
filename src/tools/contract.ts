@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { ClusterSourceProvider } from "../cluster/ClusterSource";
+import type { LokiApi } from "../logs/LokiClient";
 import type { AlertSource, PromApi } from "../metrics/PromClient";
 import type { AuditLog } from "../platform/audit";
 import type { AuthContext } from "../platform/auth/context";
@@ -281,6 +282,7 @@ export interface ToolDeps {
   registry: Registry;
   cluster: ClusterSourceProvider;
   audit: AuditLog;
+  loki: LokiApi;
   prom: PromApi;
   grafana?: AlertSource;
   now?: () => Date;
@@ -377,7 +379,7 @@ export function defineTool<Shape extends z.ZodRawShape, Item>(spec: ToolSpec<Sha
           const untrack = guard ? guard.track() : () => {};
 
           try {
-            const ctx: ToolContext = { registry: deps.registry, cluster: deps.cluster, audit: deps.audit, prom: deps.prom, grafana: deps.grafana, auth, now: deps.now ?? (() => new Date()), signal: extra.signal };
+            const ctx: ToolContext = { registry: deps.registry, cluster: deps.cluster, audit: deps.audit, loki: deps.loki, prom: deps.prom, grafana: deps.grafana, auth, now: deps.now ?? (() => new Date()), signal: extra.signal };
             const now = ctx.now();
             const reply = await spec.handler(args as z.infer<z.ZodObject<Shape>>, ctx);
             const window = reply.window ?? windowOf(args, now);

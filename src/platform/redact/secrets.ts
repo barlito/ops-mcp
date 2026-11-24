@@ -15,17 +15,21 @@ const PATTERNS: [string, RegExp][] = [
   ["Stripe live key", new RegExp(String.raw`${B}(?:sk|rk)_live_[A-Za-z0-9]{20,}`)],
   ["ops-mcp token", new RegExp(String.raw`${B}ops_[A-Za-z0-9_-]{43}(?![\w-])`)],
   ["ops-mcp connector key", new RegExp(String.raw`${B}opsk_[A-Za-z0-9_-]{43}(?![\w-])`)],
-  ["JWT", new RegExp(String.raw`${B}eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*`)],
+  ["JWT", new RegExp(String.raw`${B}eyJ[A-Za-z0-9_-]{8,2048}\.eyJ[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{0,2048}`)],
 ];
 
 // Contextual secrets keep their key and are replaced in place; they run before PATTERNS.
-const KEY = String.raw`(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token)`;
+// The key may be glued to an uppercase prefix (PGPASSWORD) but not to lowercase letters or digits.
+const WORDS = String.raw`password|passwd|pwd|secret|token|api[_-]?key`;
+const KEY = String.raw`(?-i:(?<![a-z0-9]))(?:${WORDS})`;
+const VALUE = String.raw`(?:"[^"]*"|'[^']*'|[^\s&"',;]+)`;
 const REPLACERS: [RegExp, string][] = [
-  [/\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/'"]*):[^\s@/'"]+@/gi, "$1:[REDACTED]@"],
-  [/(authorization["']?\s*[:=]\s*["']?(?:bearer|basic)\s+)[^\s"',;]+/gi, "$1[REDACTED]"],
-  [/\bbearer\s+[A-Za-z0-9._~+/=-]{20,}/gi, "Bearer [REDACTED]"],
-  [new RegExp(String.raw`(${KEY}["']?\s*=\s*)(?:"[^"]*"|'[^']*'|[^\s&"',;]+)`, "gi"), "$1[REDACTED]"],
-  [new RegExp(String.raw`("(?:[\w.-]*[_.-])?(?:password|passwd|pwd|secret|token)"\s*:\s*)"(?:[^"\\]|\\.)*"`, "gi"), '$1"[REDACTED]"'],
+  // user:password@host, the password may itself contain "@": it ends at the last "@" of the authority.
+  [/(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*:\/\/[^\s:@/'"]*):[^\s'"/]+@/gi, "$1:[REDACTED]@"],
+  [/(authorization["']?\s*[:=]\s*["']?(?:bearer|basic|token)\s+)[^\s"',;]+/gi, "$1[REDACTED]"],
+  [/(?<![a-z0-9])bearer\s+[A-Za-z0-9._~+/=-]{20,}/gi, "Bearer [REDACTED]"],
+  [new RegExp(String.raw`("[\w.-]{0,40}?(?:${WORDS})"\s*:\s*)"(?:[^"\\]|\\.)*"`, "gi"), '$1"[REDACTED]"'],
+  [new RegExp(String.raw`(${KEY}["']?\s*[:=]\s*)(?!["']?\[REDACTED)${VALUE}`, "gi"), "$1[REDACTED]"],
 ];
 
 export function findSecret(text: string): { kind: string; line: number } | undefined {

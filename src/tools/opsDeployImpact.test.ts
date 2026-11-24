@@ -94,7 +94,7 @@ test("compares equal windows around the deploy: deltas, top 3 new error patterns
   assert.equal(r.structuredContent?.summary, "carapp_php v1.4.3: errors 2→42, 5xx 0.1%→3.2%, p95 180→950 ms, 3 new error patterns, 2 failed tasks after");
   assert.deepEqual(r.structuredContent?.window, { from: "2026-06-01T11:00:00.000Z", to: "2026-06-01T12:00:00.000Z" });
   assert.ok(seen.some((q) => q.includes(String.raw`service=~"(carapp_php|carapp|carapp\\-php)@.+"`) && q.includes('server="ovh-prod-1"')));
-  assert.match(textOf(r), /^error_logs \(lines\) 2 -> 41 \(\+39\)/m);
+  assert.match(textOf(r), /^error_logs \(lines\) 2 -> 42 \(\+40\)/m);
 });
 
 test("deploy_id takes the instant from the Swarm rollout of that deployment and labels the version", async () => {

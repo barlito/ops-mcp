@@ -7,6 +7,8 @@ const DEFAULT_URL = "http://loki:3100";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_CONCURRENCY = 4;
 const MAX_ERROR_CHARS = 300;
+const QUEUE_WAIT_MS = 5000;
+const QUEUE_POLL_MS = 25;
 
 export interface LokiStream {
   labels: Record<string, string>;
@@ -65,8 +67,10 @@ export class LokiClient implements LokiApi {
   private readonly url: string;
   private readonly timeoutMs: number;
   private readonly limiter: SlotLimiter;
+  private readonly queueWaitMs: number;
 
-  constructor(opts: { url?: string; timeoutMs?: number; concurrency?: number } = {}) {
+  constructor(opts: { url?: string; timeoutMs?: number; concurrency?: number; queueWaitMs?: number } = {}) {
+    this.queueWaitMs = opts.queueWaitMs ?? QUEUE_WAIT_MS;
     this.url = (opts.url ?? DEFAULT_URL).replace(/\/+$/, "");
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.limiter = new SlotLimiter(opts.concurrency ?? DEFAULT_CONCURRENCY);
@@ -83,19 +87,32 @@ export class LokiClient implements LokiApi {
     return this.get("/loki/api/v1/query", new URLSearchParams({ query: p.query, time: String(p.time) }), opts?.signal);
   }
 
+  // Waits a few seconds for a free slot instead of failing at once.
+  private async acquire(signal?: AbortSignal): Promise<() => void> {
+    const deadline = Date.now() + this.queueWaitMs;
+    for (;;) {
+      if (signal?.aborted) throw new ToolError("cancelled", "The request was cancelled.");
+      const release = this.limiter.acquire([]);
+      if (release) return release;
+      if (Date.now() >= deadline) throw new ToolError("backend_busy", "Too many concurrent Loki queries, retry shortly.");
+      await new Promise((r) => setTimeout(r, QUEUE_POLL_MS));
+    }
+  }
+
   private async get(path: string, params: URLSearchParams, signal?: AbortSignal): Promise<LokiData> {
-    const release = this.limiter.acquire([]);
-    if (!release) throw new ToolError("backend_busy", "Too many concurrent Loki queries, retry shortly.");
+    const release = await this.acquire(signal);
     try {
+      const request = signal ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)]) : AbortSignal.timeout(this.timeoutMs);
       let res: Response;
+      let body: string;
       try {
-        res = await fetch(`${this.url}${path}?${params}`, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)]) : AbortSignal.timeout(this.timeoutMs) });
+        res = await fetch(`${this.url}${path}?${params}`, { signal: request });
+        body = await res.text();
       } catch (err) {
         if (signal?.aborted) throw new ToolError("cancelled", "The request was cancelled.");
         if (err instanceof Error && err.name === "TimeoutError") throw new ToolError("backend_timeout", `Loki did not answer within ${this.timeoutMs / 1000}s.`);
         throw new ToolError("backend_unavailable", "Loki is unreachable.");
       }
-      const body = await res.text().catch(() => "");
       if (res.status === 400 || res.status === 422) throw new ToolError("query_rejected", `Loki rejected the query: ${clean(body)}`);
       if (res.status === 504) throw new ToolError("backend_timeout", "Loki query timed out.");
       if (!res.ok) throw new ToolError("backend_unavailable", `Loki answered HTTP ${res.status}.`);

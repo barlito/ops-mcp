@@ -44,7 +44,7 @@ const RFC3339_RE = new RegExp(`^${RFC3339}$`);
 const UNIT_MS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
 // Names as Docker/Loki know them; bounded so scope fields cannot blow the envelope or inject selectors.
-const nameParam = z
+export const nameParam = z
   .string()
   .max(128)
   .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, "must be a plain name (letters, digits, _ . -)");

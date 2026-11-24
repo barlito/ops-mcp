@@ -4,7 +4,7 @@ import { fetchEntries } from "../logs/fetch";
 import { cleanLine } from "../logs/fingerprint";
 import { quote } from "../logs/selector";
 import { isoNs, parseNs } from "../logs/time";
-import { defineTool, envelopeSchema, resolveServers } from "./contract";
+import { defineTool, envelopeSchema, nameParam, resolveServers } from "./contract";
 
 const DAY_NS = 86_400_000_000_000n;
 const MAX_SIDE = 50;
@@ -17,8 +17,8 @@ export const opsLogsContext = defineTool({
   name: "ops_logs_context",
   description: "Lines logged by one service around an instant (a few before, the line at that instant and a few after), oldest first. Use the ts of a line from ops_logs_query. Lines are redacted and cut to 400 characters.",
   inputSchema: z.object({
-    server: z.string().describe("Server slug (see ops_list_servers)."),
-    service: z.string().describe("Full Swarm service name, e.g. carapp_php."),
+    server: nameParam.describe("Server slug (see ops_list_servers)."),
+    service: nameParam.describe("Full Swarm service name, e.g. carapp_php."),
     ts: z.string().regex(RFC3339_RE, "ts must be an RFC 3339 timestamp").describe("The instant, RFC 3339 (nanosecond precision accepted)."),
     before: z.number().int().min(0).max(MAX_SIDE).default(10).describe(`Lines before the instant (default 10, max ${MAX_SIDE}).`),
     after: z.number().int().min(0).max(MAX_SIDE).default(10).describe(`Lines after the instant (default 10, max ${MAX_SIDE}).`),

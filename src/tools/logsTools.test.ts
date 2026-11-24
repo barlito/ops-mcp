@@ -4,6 +4,7 @@ import { LokiClient } from "../logs/LokiClient";
 import { FakeLoki, type FakeLine } from "../test-support/loki";
 import { connect, textOf } from "../test-support/mcp";
 import { logsSection } from "../overview/logsSection";
+import { sampleEntries } from "../logs/fetch";
 import { overviewTool } from "./opsOverview";
 import { opsLogsContext } from "./opsLogsContext";
 import { opsLogsQuery } from "./opsLogsQuery";
@@ -168,4 +169,83 @@ test("ops_overview carries the logs part of every server", async () => {
   assert.equal(first.server, "ovh-prod-1");
   assert.deepEqual(first.logs.patterns.map((p: { count: number; pattern: string }) => [p.count, p.pattern]), [[4, "level=error cache miss <n>"]]);
   assert.match(env(r).summary, /ovh-prod-1: 1 error pattern/);
+});
+
+test("ops_logs_query: lines sharing a timestamp are neither lost nor repeated across pages", async () => {
+  const same = Array.from({ length: 23 }, (_, i): FakeLine => ({ ns: ns(5000), line: `same ts ${String(i).padStart(2, "0")}` }));
+  const all = [...lines(5), ...same, { ns: ns(100), line: "newest" }];
+  for (const direction of ["backward", "forward"] as const) {
+    const { call } = await connect([opsLogsQuery], { loki: new FakeLoki(all) });
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const r = await call("ops_logs_query", { limit: 4, direction, ...(cursor ? { cursor } : {}) });
+      assert.ok(!r.isError, textOf(r));
+      seen.push(...items(r).map((i) => i.line as string));
+      cursor = env(r).next_cursor;
+    } while (cursor && ++pages < 40);
+    assert.equal(seen.length, all.length);
+    assert.equal(new Set(seen).size, all.length);
+  }
+});
+
+test("ops_logs_query: a page always keeps at least one line, even with a long line and the smallest max_bytes", async () => {
+  const loki = new FakeLoki([{ ns: ns(2000), line: '"quoted" \\ '.repeat(60) }, { ns: ns(1000), line: "second" }]);
+  const { call } = await connect([opsLogsQuery], { loki });
+  const r = await call("ops_logs_query", { server: "ovh-prod-1", service: "carapp_php", direction: "forward", max_bytes: 1024 });
+  assert.ok(!r.isError, textOf(r));
+  assert.ok(items(r).length >= 1);
+  assert.ok(Buffer.byteLength(JSON.stringify(r.structuredContent)) <= 1024);
+});
+
+test("ops_logs_query: a forged cursor cannot widen the 24h window", async () => {
+  const loki = new FakeLoki(lines(3));
+  const { call } = await connect([opsLogsQuery], { loki });
+  const cursor = (nsValue: bigint) => Buffer.from(JSON.stringify({ ns: String(nsValue), seen: 0 })).toString("base64url");
+  await call("ops_logs_query", { since: "7d", cursor: cursor(ns(7 * DAY - 1000)), direction: "forward" });
+  assert.ok(loki.ranges[0]!.start >= ns(DAY));
+  // Backward from before the window: nothing to ask Loki.
+  const before = loki.ranges.length;
+  const r = await call("ops_logs_query", { since: "7d", cursor: cursor(ns(3 * DAY)), direction: "backward" });
+  assert.equal(items(r).length, 0);
+  assert.equal(loki.ranges.length, before);
+});
+
+test("ops_logs_query_raw returns only the known stream labels of log lines and masks sensitive metric labels", async () => {
+  const loki = new FakeLoki([{ ns: ns(1000), line: "x", labels: { password: "hunter2", user: "bob", container: "c1" } }]);
+  const { call } = await connect([opsLogsQueryRaw], { loki });
+  const logs = await call("ops_logs_query_raw", { logql: '{server="ovh-prod-1"} | json' });
+  assert.deepEqual(items(logs)[0]!.labels, { server: "ovh-prod-1", service_name: "carapp_php", container: "c1", detected_level: "error" });
+  assert.ok(!JSON.stringify(logs).includes("hunter2"));
+
+  loki.queryRange = async () => ({ type: "series", series: [{ labels: { password: "hunter2", api_key: "k", user: "bob", dsn: "postgres://u:pw@h/db", long: "z".repeat(1000) }, points: [[1, "1"]] }] });
+  const metric = await call("ops_logs_query_raw", { logql: "sum by (password, user) (count_over_time({server=~\".+\"} | json [5m]))" });
+  const labels = items(metric)[0]!.labels;
+  assert.deepEqual([labels.password, labels.api_key, labels.user], ["[REDACTED]", "[REDACTED]", "bob"]);
+  assert.ok(!JSON.stringify(metric).includes("hunter2") && !JSON.stringify(metric).includes(":pw@"));
+  assert.ok(labels.long!.length <= 200);
+});
+
+test("ops_logs_query_raw refuses line_format/label_format and long lookbacks, ignores comments and string contents", async () => {
+  const loki = new FakeLoki(lines(2));
+  const { call } = await connect([opsLogsQueryRaw], { loki });
+  for (const bad of ['{a="b"} | line_format "{{.x}}"', '{a="b"} | label_format x=y', '{a="b"} # c\n | line_format "x"', 'rate({a="b"}[8d])', 'rate({a="b"}[1d] offset 2w)', 'sum_over_time({a="b"} | unwrap x [14d:1h])']) {
+    const r = await call("ops_logs_query_raw", { logql: bad });
+    assert.match(textOf(r), /invalid_param/, bad);
+  }
+  assert.equal(loki.ranges.length, 0);
+  // A comment must not turn a log query into a metric one, and strings may contain the words.
+  const ok = await call("ops_logs_query_raw", { logql: '# note\n{server="ovh-prod-1"} |= "line_format [30d] #x"', since: "7d" });
+  assert.ok(!ok.isError, textOf(ok));
+  assert.equal(loki.ranges[0]!.query, '\n{server="ovh-prod-1"} |= "line_format [30d] #x"');
+  assert.equal(loki.ranges[0]!.end - loki.ranges[0]!.start, BigInt(DAY) * 1_000_000n);
+  assert.ok((await call("ops_logs_query_raw", { logql: 'rate({a="b"}[7d])' })).isError !== true);
+});
+
+test("sampling stops paging when its time budget is spent", async () => {
+  const loki = new FakeLoki(lines(2500, (i) => `level=error boom ${i}`));
+  const got = await sampleEntries(loki, "q", 0n, ns(0) + 1n, 5000, 0);
+  assert.equal(got.length, 1000);
+  assert.equal(loki.ranges.length, 1);
 });

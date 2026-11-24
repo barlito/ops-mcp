@@ -95,10 +95,10 @@ test("an unreachable Loki is backend_unavailable, a slow one backend_timeout", a
   });
 });
 
-test("concurrency is bounded: the extra query fails fast and the slot is released afterwards", async () => {
+test("concurrency is bounded: with no queue wait the extra query fails and the slot is released afterwards", async () => {
   const held: ServerResponse[] = [];
   await withLoki((_req, res) => { held.push(res); }, async (url) => {
-    const c = new LokiClient({ url, concurrency: 1, timeoutMs: 5000 });
+    const c = new LokiClient({ url, concurrency: 1, timeoutMs: 5000, queueWaitMs: 0 });
     const first = c.queryRange(range);
     first.catch(() => undefined);
     await new Promise((r) => setTimeout(r, 50));
@@ -118,5 +118,37 @@ test("an aborted caller stops the request with a cancelled error", async () => {
     const p = new LokiClient({ url, timeoutMs: 5000 }).queryRange(range, { signal: ctl.signal });
     setTimeout(() => ctl.abort(), 50);
     await assert.rejects(p, code("cancelled"));
+  });
+});
+
+test("a query waits for a free slot, gives up after the queue wait, and the wait is abortable", async () => {
+  const held: ServerResponse[] = [];
+  await withLoki((_req, res) => { held.push(res); }, async (url) => {
+    const c = new LokiClient({ url, concurrency: 1, timeoutMs: 5000, queueWaitMs: 400 });
+    const first = c.queryRange(range);
+    await new Promise((r) => setTimeout(r, 50));
+    const waiting = c.queryRange(range);
+    setTimeout(() => json(held[0]!, { status: "success", data: { resultType: "streams", result: [] } }), 100);
+    await first;
+    await new Promise((r) => setTimeout(r, 30));
+    json(held[1]!, { status: "success", data: { resultType: "streams", result: [] } });
+    await waiting;
+
+    const blocker = c.queryRange(range);
+    blocker.catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 50));
+    await assert.rejects(c.queryRange(range), code("backend_busy"));
+    const ctl = new AbortController();
+    const aborted = c.queryRange(range, { signal: ctl.signal });
+    setTimeout(() => ctl.abort(), 50);
+    await assert.rejects(aborted, code("cancelled"));
+    json(held[2]!, { status: "success", data: { resultType: "streams", result: [] } });
+    await blocker;
+  });
+});
+
+test("a body that never finishes is a backend_timeout", async () => {
+  await withLoki((_req, res) => { res.writeHead(200, { "content-type": "application/json" }); res.write("{"); }, async (url) => {
+    await assert.rejects(new LokiClient({ url, timeoutMs: 150 }).queryRange(range), code("backend_timeout"));
   });
 });

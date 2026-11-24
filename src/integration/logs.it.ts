@@ -22,6 +22,7 @@ const apiLines = [
   ...Array.from({ length: 6 }, (_, i) => `level=info msg="request served" path=/health took=${i}ms`),
   'level=error msg="cannot connect" dsn=postgres://shop:Sup3rSecretPw@db:5432/shop',
   "level=warn msg=\"slow query\" took=1800ms",
+  '{"level":"info","msg":"login","user":"bob","password":"hunter2"}',
 ];
 const workerLines = Array.from({ length: 3 }, (_, i) => `level=error msg="queue timeout after ${30 + i}s"`);
 const otherLines = ["level=error msg=\"cron failed\" job=nightly"];
@@ -133,4 +134,21 @@ test("ops_logs_query_raw runs log and metric queries", async () => {
 test("a malformed LogQL query is query_rejected, not an internal error", async () => {
   const { call } = await connect([opsLogsQueryRaw], { loki, now: () => new Date() });
   assert.match(textOf(await call("ops_logs_query_raw", { logql: "{server=" })), /query_rejected/);
+});
+
+test("raw queries never surface a parsed password field, in lines or in metric labels", async () => {
+  const { call } = await connect([opsLogsQueryRaw], { loki, now: () => new Date() });
+  const logs = await call("ops_logs_query_raw", { logql: `{server="${SERVER}", service_name="shop_api"} |= "login" | json` });
+  assert.ok(!logs.isError, textOf(logs));
+  assert.equal(env(logs).items.length, 1);
+  assert.ok(!JSON.stringify(logs.structuredContent).includes("hunter2"));
+  assert.ok(!textOf(logs).includes("hunter2"));
+  assert.ok(Object.keys(env(logs).items[0]!.labels).every((k) => !["password", "user", "msg"].includes(k)));
+
+  const metric = await call("ops_logs_query_raw", { logql: `sum by (password) (count_over_time({server="${SERVER}"} |= "login" | json [15m]))`, since: "15m" });
+  assert.ok(!metric.isError, textOf(metric));
+  assert.ok(env(metric).items.length >= 1);
+  assert.ok(!JSON.stringify(metric.structuredContent).includes("hunter2"));
+  assert.ok(!textOf(metric).includes("hunter2"));
+  assert.equal(env(metric).items[0]!.labels.password, "[REDACTED]");
 });

@@ -26,6 +26,9 @@ services:
       # Optional Grafana Alerting source: used only when GRAFANA_URL is set (the token is a Docker secret file)
       - GRAFANA_URL=${GRAFANA_URL:-}
       - GRAFANA_TOKEN_FILE=/run/secrets/grafana_token
+      # Optional GitHub Deployments source (ops_recent_deploys, ops_deploy_impact): fine-grained read-only token as a Docker secret file
+      - GH_DEPLOYMENTS_TOKEN_FILE=/run/secrets/gh_deployments_token
+      - GITHUB_OWNER=${GITHUB_OWNER:-barlito}
       # Shown in the ready-to-paste `claude mcp add` command after credential creation
       - PUBLIC_MCP_URL=https://ops.local.barlito.fr/mcp
       # Swarm DNS for the Traefik tasks: only they may set X-Forwarded-For.
@@ -51,6 +54,9 @@ services:
         mode: 0444
       - source: grafana_token
         target: grafana_token
+        mode: 0444
+      - source: gh_deployments_token
+        target: gh_deployments_token
         mode: 0444
     configs:
       - source: ops_registry
@@ -156,6 +162,10 @@ secrets:
   grafana_token:
     external: true
     name: ${GRAFANA_TOKEN_SECRET_NAME:?GRAFANA_TOKEN_SECRET_NAME is required}
+  # Holds the literal `unset` unless a GitHub token is provided (see the Makefile): GitHub deployments are then left out.
+  gh_deployments_token:
+    external: true
+    name: ${GH_DEPLOYMENTS_TOKEN_SECRET_NAME:?GH_DEPLOYMENTS_TOKEN_SECRET_NAME is required}
 
 configs:
   # Swarm configs are immutable: the name carries a hash of the content (CONFIG_VERSION, set by the

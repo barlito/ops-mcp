@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { ClusterSourceProvider } from "../cluster/ClusterSource";
+import type { GitHubApi } from "../github/GitHubClient";
 import type { LokiApi } from "../logs/LokiClient";
 import type { AlertSource, PromApi } from "../metrics/PromClient";
 import type { AuditLog } from "../platform/audit";
@@ -91,7 +92,7 @@ export interface TimeWindow {
 
 export type ClampedWindow = TimeWindow & { clamped: boolean };
 
-function parseInstant(value: string, name: string): Date {
+export function parseInstant(value: string, name: string): Date {
   const ms = RFC3339_RE.test(value) ? Date.parse(value) : NaN;
   if (Number.isNaN(ms)) throw new ToolError("invalid_window", `${name} must be an RFC 3339 timestamp, got "${value}".`);
   return new Date(ms);
@@ -285,6 +286,7 @@ export interface ToolDeps {
   loki: LokiApi;
   prom: PromApi;
   grafana?: AlertSource;
+  github?: GitHubApi;
   now?: () => Date;
   guard?: ToolGuard;
 }
@@ -379,7 +381,7 @@ export function defineTool<Shape extends z.ZodRawShape, Item>(spec: ToolSpec<Sha
           const untrack = guard ? guard.track() : () => {};
 
           try {
-            const ctx: ToolContext = { registry: deps.registry, cluster: deps.cluster, audit: deps.audit, loki: deps.loki, prom: deps.prom, grafana: deps.grafana, auth, now: deps.now ?? (() => new Date()), signal: extra.signal };
+            const ctx: ToolContext = { registry: deps.registry, cluster: deps.cluster, audit: deps.audit, loki: deps.loki, prom: deps.prom, grafana: deps.grafana, github: deps.github, auth, now: deps.now ?? (() => new Date()), signal: extra.signal };
             const now = ctx.now();
             const reply = await spec.handler(args as z.infer<z.ZodObject<Shape>>, ctx);
             const window = reply.window ?? windowOf(args, now);

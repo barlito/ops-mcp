@@ -13,7 +13,8 @@ TypeScript, Node 24, Express 5, `@modelcontextprotocol/sdk` (stateless Streamabl
 | `ops_list_stacks` | Swarm stacks with project, health, images and last update |
 | `ops_get_service` | One service, sanitized (no env, no secret values), with its last tasks |
 | `ops_list_tasks` | Tasks of a stack or service with error, exit code and timestamps, paginated |
-| `ops_recent_deploys` | Services updated in the window with update state and image before/after |
+| `ops_recent_deploys` | Services updated in the window with update state and image before/after, fused with the matching GitHub production deployment (tag, sha, status, run URL, creator) |
+| `ops_deploy_impact` | Before/after comparison of one deploy: error logs and new error patterns, Traefik 5xx and p95, container starts, Swarm failed tasks |
 | `ops_logs_summary` | Log counts per service and level, plus the top recurring error patterns (normalised, with first/last seen and an example) |
 | `ops_logs_query` | Search logs by scope, substring, RE2 regex and level; redacted, cut to 400 chars, cursor pagination, window capped at 24h |
 | `ops_logs_context` | Lines around an instant for one service |
@@ -62,6 +63,7 @@ Docker API access goes through `dockerproxy-ops` (docker-socket-proxy: read-only
 
 - `PROM_URL` (default `http://prometheus:9090`): Prometheus, reached over the external `obs_query` network.
 - `GRAFANA_URL` (optional): Grafana Alerting alerts in `ops_alerts`, read with a service account token (Viewer) from the Docker secret file `/run/secrets/grafana_token`. Local: put the token in `data/grafana-token` before `make deploy`; prod: `GRAFANA_TOKEN` secret and `GRAFANA_URL` variable of the Deploy workflow. Without a token the secret holds `unset` and Grafana is ignored; an unreadable token file logs a warning and `ops_alerts` reports Grafana as unavailable. Without `GRAFANA_URL`, `ops_alerts` returns Prometheus alerts only and says so.
+- `GH_DEPLOYMENTS_TOKEN_FILE` (optional): GitHub Deployments in `ops_recent_deploys` and `ops_deploy_impact`, read with a fine-grained read-only token (Deployments + Metadata) from the Docker secret file `/run/secrets/gh_deployments_token`; `GITHUB_OWNER` (default `barlito`). Prod: `GH_DEPLOYMENTS_TOKEN` secret of the production environment; without it the secret holds `unset` and the tools say GitHub is not configured. An unreadable token file logs a warning. The repository of a service is its `fr.barlito.repo` label, else the registry `stack_projects` entry. Deployments created by `swarm-rollback` run on the default branch, so they are reported as `kind: rollback` with the tag taken from Swarm.
 - Traefik series are matched on the `service` label equal to the Swarm service name, its stack prefix or the auto-generated name (`carapp_php` matches `carapp_php@...`, `carapp@...` and `carapp-php@...`): Traefik names services after the `traefik.http.services.<name>` label, not after the Swarm service.
 - `make test.integration-metrics` backfills deterministic data into a throwaway Prometheus (compose project `ops-mcp-it-metrics`) and runs the tools against it.
 

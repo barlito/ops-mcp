@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "./contract";
 import { opsAlerts } from "./opsAlerts";
+import { opsDeployImpact } from "./opsDeployImpact";
 import { opsGetService } from "./opsGetService";
 import { opsHostMetrics } from "./opsHostMetrics";
 import { opsListServers } from "./opsListServers";
@@ -15,4 +16,4 @@ import { opsRecentDeploys } from "./opsRecentDeploys";
 import { opsServiceMetrics } from "./opsServiceMetrics";
 
 // Add new tools here (one line each, one file per tool).
-export const TOOLS: ToolDefinition[] = [opsListServers, opsOverview, opsListStacks, opsGetService, opsListTasks, opsRecentDeploys, opsLogsSummary, opsLogsQuery, opsLogsContext, opsLogsQueryRaw, opsServiceMetrics, opsHostMetrics, opsMetricsQuery, opsAlerts];
+export const TOOLS: ToolDefinition[] = [opsListServers, opsOverview, opsListStacks, opsGetService, opsListTasks, opsRecentDeploys, opsDeployImpact, opsLogsSummary, opsLogsQuery, opsLogsContext, opsLogsQueryRaw, opsServiceMetrics, opsHostMetrics, opsMetricsQuery, opsAlerts];

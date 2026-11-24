@@ -114,7 +114,7 @@ test("ops_alerts and the overview sections see the firing and pending rules", as
   const window = { from: new Date(Date.now() - 3600_000), to: new Date() };
   const registry = testRegistry();
   const alerts = await alertsSection.collect(ctx, registry.servers, window);
-  assert.deepEqual(alerts.get("ovh-prod-1"), { firing: 1, names: ["ItDiskFull"], firing_without_server: 0, names_without_server: [], notes: ["Grafana alerts not included (not configured)"] });
+  assert.deepEqual(alerts.get("ovh-prod-1"), { firing: 1, names: ["ItDiskFull"], firing_without_server: 0, names_without_server: [], notes: ["Grafana alerts not included (Grafana not configured)"], rules_configured: true });
   const metrics = await metricsSection.collect(ctx, registry.servers, window);
   const prod = metrics.get("ovh-prod-1")!;
   near(prod.cpu_pct, 25, 2, "overview cpu");

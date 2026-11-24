@@ -21,7 +21,7 @@ test("without Grafana: Prometheus alerts, firing first, and the summary says Gra
   const r = await call("ops_alerts");
   assert.ok(!r.isError);
   assert.deepEqual((r.structuredContent?.items as Item[]).map((i) => [i.source, i.name, i.state]), [["prometheus", "DiskFull", "firing"], ["prometheus", "Other", "firing"], ["prometheus", "HighCpu", "pending"]]);
-  assert.equal(r.structuredContent?.summary, "2 firing, 1 pending, 0 other (sources: prometheus). Grafana alerts not included (not configured)");
+  assert.equal(r.structuredContent?.summary, "2 firing, 1 pending, 0 other (sources: prometheus). Grafana alerts not included (Grafana not configured)");
   assert.match(textOf(r), /firing DiskFull \[critical\] \(prometheus\) since 2026-06-01T11:00:00Z: Disk is 95% full/);
 });
 
@@ -66,4 +66,13 @@ test("malformed alerts are skipped with a note, long values are truncated", asyn
   assert.deepEqual(items.map((i) => i.name), ["Long"]);
   assert.ok(items[0]!.value!.length <= 201 && items[0]!.labels.note!.length <= 201);
   assert.match(r.structuredContent?.summary as string, /3 malformed alert\(s\) skipped/);
+});
+
+test("without any rule group and without Grafana, the summary says no rules are configured", async () => {
+  const noRules = fakeProm({ hasRules: async () => false });
+  const r = await (await connect([opsAlerts], { prom: noRules })).call("ops_alerts");
+  assert.deepEqual(r.structuredContent?.items, []);
+  assert.match(r.structuredContent?.summary as string, /^No alert rules configured, so no alert can fire/);
+  const withGrafana = await (await connect([opsAlerts], { prom: noRules, grafana: { alerts: async () => [] } })).call("ops_alerts");
+  assert.match(withGrafana.structuredContent?.summary as string, /^0 firing, 0 pending/);
 });

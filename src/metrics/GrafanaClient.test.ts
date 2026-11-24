@@ -42,6 +42,9 @@ test("grafanaFromEnv: off without a URL, a client with a token file, a failing s
   assert.equal(grafanaFromEnv({}), undefined);
   assert.equal(grafanaFromEnv({ GRAFANA_TOKEN_FILE: file }), undefined);
   assert.ok(grafanaFromEnv({ GRAFANA_URL: "http://g", GRAFANA_TOKEN_FILE: file }) instanceof GrafanaClient);
+  for (const content of ["unset", "unset\n", "", "  \n"]) {
+    assert.equal(grafanaFromEnv({ GRAFANA_URL: "http://g", GRAFANA_TOKEN_FILE: writeTemp("tok", content) }), undefined, JSON.stringify(content));
+  }
   const warn = mock.method(console, "warn", () => {});
   try {
     for (const env of [{ GRAFANA_URL: "http://g" }, { GRAFANA_URL: "http://g", GRAFANA_TOKEN_FILE: "/nonexistent/token" }, { GRAFANA_URL: "http://g", GRAFANA_TOKEN: "plain" }]) {

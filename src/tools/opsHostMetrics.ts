@@ -40,7 +40,7 @@ export const opsHostMetrics = defineTool({
     const perHost = async (metric: string, unit: string, promql: string, byMountpoint = false): Promise<Item[]> => {
       const series: PromSeries[] = await ctx.prom.queryRange(promql, window, step, { signal: ctx.signal });
       if (series.length === 0) return [{ ...metricItem(metric, unit, undefined, NO_DATA), host: args.host ?? null }];
-      return series.map((s) => ({ ...metricItem(metric, unit, s), host: s.labels.host_name ?? null, ...(byMountpoint ? { mountpoint: s.labels.mountpoint ?? "" } : {}) }));
+      return series.map((s) => ({ ...metricItem(metric, unit, s, NO_DATA, window.to.getTime() / 1000 - step), host: s.labels.host_name ?? null, ...(byMountpoint ? { mountpoint: s.labels.mountpoint ?? "" } : {}) }));
     };
 
     const lookback = `${Math.round(Math.min(MAX_WINDOW_MS / 1000, Math.max(span, 6 * 3600)))}s`;

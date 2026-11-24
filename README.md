@@ -61,8 +61,8 @@ Docker API access goes through `dockerproxy-ops` (docker-socket-proxy: read-only
 ## Metrics configuration
 
 - `PROM_URL` (default `http://prometheus:9090`): Prometheus, reached over the external `obs_query` network.
-- `GRAFANA_URL` + `GRAFANA_TOKEN_FILE` (optional): Grafana Alerting alerts in `ops_alerts`. The token (service account, Viewer) is read from a Docker secret file, never from a plain env var. Without them `ops_alerts` returns Prometheus alerts only and says so.
-- Traefik series are matched on the `service` label equal to the Swarm service name or to its stack prefix (`carapp_php` matches `carapp_php@...` and `carapp@...`): Traefik names services after the `traefik.http.services.<name>` label, not after the Swarm service.
+- `GRAFANA_URL` (optional): Grafana Alerting alerts in `ops_alerts`, read with a service account token (Viewer) from the Docker secret file `/run/secrets/grafana_token`. Local: put the token in `data/grafana-token` before `make deploy`; prod: `GRAFANA_TOKEN` secret and `GRAFANA_URL` variable of the Deploy workflow. Without a token the secret holds `unset` and Grafana is ignored; an unreadable token file logs a warning and `ops_alerts` reports Grafana as unavailable. Without `GRAFANA_URL`, `ops_alerts` returns Prometheus alerts only and says so.
+- Traefik series are matched on the `service` label equal to the Swarm service name, its stack prefix or the auto-generated name (`carapp_php` matches `carapp_php@...`, `carapp@...` and `carapp-php@...`): Traefik names services after the `traefik.http.services.<name>` label, not after the Swarm service.
 - `make test.integration-metrics` backfills deterministic data into a throwaway Prometheus (compose project `ops-mcp-it-metrics`) and runs the tools against it.
 
 ## Local development

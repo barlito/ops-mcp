@@ -21,7 +21,7 @@ test("without Grafana: Prometheus alerts, firing first, and the summary says Gra
   const r = await call("ops_alerts");
   assert.ok(!r.isError);
   assert.deepEqual((r.structuredContent?.items as Item[]).map((i) => [i.source, i.name, i.state]), [["prometheus", "DiskFull", "firing"], ["prometheus", "Other", "firing"], ["prometheus", "HighCpu", "pending"]]);
-  assert.equal(r.structuredContent?.summary, "2 firing, 1 pending, 0 other (sources: prometheus). Grafana alerts not included (GRAFANA_URL/GRAFANA_TOKEN not configured)");
+  assert.equal(r.structuredContent?.summary, "2 firing, 1 pending, 0 other (sources: prometheus). Grafana alerts not included (not configured)");
   assert.match(textOf(r), /firing DiskFull \[critical\] \(prometheus\) since 2026-06-01T11:00:00Z: Disk is 95% full/);
 });
 
@@ -50,4 +50,20 @@ test("filters match the alert labels; unknown servers are rejected", async () =>
   const byService = (await call("ops_alerts", { server: "ovh-prod-1", service: "carapp_php" })).structuredContent?.items as Item[];
   assert.deepEqual(byService.map((i) => i.name), ["HighCpu"]);
   assert.match(textOf(await call("ops_alerts", { server: "nope" })), /unknown_server/);
+});
+
+test("Grafana states are read on their first word and the reason is kept", async () => {
+  const grafana = { alerts: async () => [alert({ alertname: "A" }, "Alerting (NoData)"), alert({ alertname: "B" }, "Pending"), alert({ alertname: "C" }, "Normal (Error)")] };
+  const items = (await (await connect([opsAlerts], { prom: fakeProm(), grafana })).call("ops_alerts")).structuredContent?.items as Array<{ name: string; state: string; reason?: string }>;
+  assert.deepEqual(items.map((i) => [i.name, i.state, i.reason]), [["A", "firing", "NoData"], ["B", "pending", undefined]]);
+});
+
+test("malformed alerts are skipped with a note, long values are truncated", async () => {
+  const bad = [{ labels: { alertname: "NoState" } }, { state: "firing" }, null, { labels: { alertname: "Long", note: "x".repeat(500) }, annotations: {}, state: "firing", value: "9".repeat(500) }] as unknown as PromAlert[];
+  const r = await (await connect([opsAlerts], { prom: fakeProm({ alerts: async () => bad }) })).call("ops_alerts");
+  assert.ok(!r.isError);
+  const items = r.structuredContent?.items as Array<{ name: string; value?: string; labels: Record<string, string> }>;
+  assert.deepEqual(items.map((i) => i.name), ["Long"]);
+  assert.ok(items[0]!.value!.length <= 201 && items[0]!.labels.note!.length <= 201);
+  assert.match(r.structuredContent?.summary as string, /3 malformed alert\(s\) skipped/);
 });

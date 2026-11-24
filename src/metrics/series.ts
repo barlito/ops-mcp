@@ -66,11 +66,15 @@ export function stats(values: number[]): Stats {
   };
 }
 
-export function metricItem(metric: string, unit: string, series: PromSeries | undefined, emptyNote = NO_DATA): MetricItem {
+export const STALE = "last sample is older than the end of the window";
+
+// `staleBefore` (unix seconds): a last sample older than it is flagged.
+export function metricItem(metric: string, unit: string, series: PromSeries | undefined, emptyNote = NO_DATA, staleBefore?: number): MetricItem {
   const values = series?.points.map(([, v]) => v) ?? [];
   if (values.length === 0) return { metric, unit, ...stats(values), points: [], sparkline: "", note: emptyNote };
   const shown = downsample(values, SPARKLINE_POINTS).map(sig);
-  return { metric, unit, ...stats(values), points: shown, sparkline: sparkline(shown) };
+  const stale = staleBefore !== undefined && series!.points[series!.points.length - 1]![0] < staleBefore;
+  return { metric, unit, ...stats(values), points: shown, sparkline: sparkline(shown), ...(stale ? { note: STALE } : {}) };
 }
 
 const fmt = (v: number | null): string => (v === null ? "n/a" : String(v));

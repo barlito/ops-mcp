@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -37,13 +37,22 @@ test("a refused token is backend_unavailable", async () => {
   });
 });
 
-test("grafanaFromEnv needs the URL and a token file; a plain GRAFANA_TOKEN is ignored", () => {
+test("grafanaFromEnv: off without a URL, a client with a token file, a failing source when the token is unreadable", async () => {
   const file = writeTemp("grafana-token", "glsa_secret\n");
   assert.equal(grafanaFromEnv({}), undefined);
-  assert.equal(grafanaFromEnv({ GRAFANA_URL: "http://g" }), undefined);
-  assert.equal(grafanaFromEnv({ GRAFANA_URL: "http://g", GRAFANA_TOKEN: "t" }), undefined);
-  assert.equal(grafanaFromEnv({ GRAFANA_URL: "", GRAFANA_TOKEN_FILE: file }), undefined);
-  assert.ok(grafanaFromEnv({ GRAFANA_URL: "http://g", GRAFANA_TOKEN_FILE: file }));
+  assert.equal(grafanaFromEnv({ GRAFANA_TOKEN_FILE: file }), undefined);
+  assert.ok(grafanaFromEnv({ GRAFANA_URL: "http://g", GRAFANA_TOKEN_FILE: file }) instanceof GrafanaClient);
+  const warn = mock.method(console, "warn", () => {});
+  try {
+    for (const env of [{ GRAFANA_URL: "http://g" }, { GRAFANA_URL: "http://g", GRAFANA_TOKEN_FILE: "/nonexistent/token" }, { GRAFANA_URL: "http://g", GRAFANA_TOKEN: "plain" }]) {
+      const source = grafanaFromEnv(env);
+      assert.ok(source && !(source instanceof GrafanaClient));
+      await assert.rejects(source.alerts(), (e) => e instanceof ToolError && /token file is missing or unreadable/.test(e.message));
+    }
+    assert.equal(warn.mock.callCount(), 3);
+  } finally {
+    warn.mock.restore();
+  }
 });
 
 test("a caller signal aborts the request", async () => {
@@ -53,7 +62,7 @@ test("a caller signal aborts the request", async () => {
     const ac = new AbortController();
     const p = new GrafanaClient(`http://127.0.0.1:${(s.address() as AddressInfo).port}`, "t", 5000).alerts({ signal: ac.signal });
     setTimeout(() => ac.abort(), 30);
-    await assert.rejects(p, (e) => e instanceof ToolError && e.code === "backend_timeout");
+    await assert.rejects(p, (e) => e instanceof ToolError && e.code === "cancelled");
   } finally {
     await new Promise<void>((r) => (s.closeAllConnections(), s.close(() => r())));
   }

@@ -104,3 +104,41 @@ test("at most `slots` requests are in flight, the others wait", async () => {
   await Promise.all(Array.from({ length: 6 }, () => client.query("up", new Date())));
   assert.equal(peak, 2);
 });
+
+test("a response beyond the byte cap is refused", async () => {
+  const big = await stub((_req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ status: "success", data: { result: [{ metric: { pad: "x".repeat(5 * 1024 * 1024) }, value: [1, "1"] }] } }));
+  });
+  await rejectsWith(new PromClient(big).query("up", new Date()), "query_rejected", /result too large/);
+});
+
+test("an aborted caller gets `cancelled`, also while waiting for a slot", async () => {
+  const url = await stub(() => {});
+  const client = new PromClient(url, { slots: 1, timeoutMs: 5000 });
+  const first = new AbortController();
+  const second = new AbortController();
+  const running = client.query("up", new Date(), { signal: first.signal });
+  const queued = client.query("up", new Date(), { signal: second.signal });
+  setTimeout(() => (second.abort(), first.abort()), 30);
+  await rejectsWith(queued, "cancelled");
+  await rejectsWith(running, "cancelled");
+});
+
+test("waiting for a slot is bounded by the timeout", async () => {
+  const url = await stub(() => {});
+  const client = new PromClient(url, { slots: 1, timeoutMs: 150 });
+  const running = client.query("up", new Date());
+  await rejectsWith(client.query("up", new Date()), "backend_timeout", /no free query slot/);
+  await rejectsWith(running, "backend_timeout");
+});
+
+test("the series limit is sent when asked", async () => {
+  let form = new URLSearchParams();
+  const url = await stub((_req, res, body) => {
+    form = new URLSearchParams(body);
+    json(res, 200, { status: "success", data: { result: [] } });
+  });
+  await new PromClient(url).queryRange("up", win, 75, { limit: 21 });
+  assert.equal(form.get("limit"), "21");
+});

@@ -81,7 +81,9 @@ deploy: ## Build the image and deploy the stack locally (Swarm)
 	@# The proxy secret also stays in the Traefik label; the app reads both from Docker secrets (files).
 	proxy_name=$$(scripts/ensure-secret.sh ops_admin_proxy_secret < data/admin-proxy-secret); \
 	web_name=$$(scripts/ensure-secret.sh ops_admin_web_secret < data/admin-web-secret); \
-	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
+	grafana_token=$$(cat data/grafana-token 2>/dev/null || true); \
+	grafana_name=$$(printf %s "$${grafana_token:-unset}" | scripts/ensure-secret.sh ops_grafana_token); \
+	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
 	  docker compose build && $(call stack_deploy,,)
 	$(MAKE) prune-local-images
 
@@ -109,7 +111,8 @@ deploy.prod: ## Deploy the whole prod stack (TAG=<release tag>): backup, stack d
 	@$(call mark_service,$(mark_file))
 	proxy_name=$$(printf %s "$$ADMIN_PROXY_SECRET" | scripts/ensure-secret.sh ops_admin_proxy_secret); \
 	web_name=$$(printf %s "$$ADMIN_WEB_SECRET" | scripts/ensure-secret.sh ops_admin_web_secret); \
-	export ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name CONFIG_VERSION=$$(sha1sum config/registry.yaml | cut -c1-10); \
+	grafana_name=$$(printf %s "$${GRAFANA_TOKEN:-unset}" | scripts/ensure-secret.sh ops_grafana_token); \
+	export ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name CONFIG_VERSION=$$(sha1sum config/registry.yaml | cut -c1-10); \
 	  $(call stack_deploy,-f docker-compose-prod.yml,--with-registry-auth --detach=false)
 	$(MAKE) deploy.assert_image
 	$(MAKE) smoke.test

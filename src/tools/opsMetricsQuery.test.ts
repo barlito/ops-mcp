@@ -15,7 +15,7 @@ test("caps the result at 20 series and 60 points", async () => {
   assert.equal(items.length, 20);
   assert.ok(items.every((i) => i.samples.length === 60 && i.sparkline.length === 30));
   assert.equal(r.structuredContent?.truncated, true);
-  assert.match(r.structuredContent?.summary as string, /25 series.*showing the first 20/);
+  assert.match(r.structuredContent?.summary as string, /^20 series.*more than 20 series, showing the first 20/);
 });
 
 test("the step is raised to keep 60 points and the request is passed through unchanged", async () => {
@@ -42,9 +42,21 @@ test("backend failures come back as coded errors", async () => {
   assert.match(textOf(await call("ops_metrics_query", { promql: "x(" })), /^Error \[query_rejected\]/);
 });
 
-test("the request's abort signal reaches Prometheus", async () => {
+test("the request's abort signal reaches Prometheus and cancels the query", async () => {
   let signal: AbortSignal | undefined;
-  const { call } = await connect([opsMetricsQuery], { prom: fakeProm({ queryRange: async (_q, _w, _s, opts) => ((signal = opts?.signal), []) }) });
+  const { call } = await connect([opsMetricsQuery], {
+    prom: fakeProm({
+      queryRange: async (_q, _w, _s, opts) => {
+        signal = opts?.signal;
+        return [];
+      },
+    }),
+  });
   await call("ops_metrics_query", { promql: "up" });
   assert.ok(signal instanceof AbortSignal);
+  const ac = new AbortController();
+  const aborted = await connect([opsMetricsQuery], { prom: fakeProm({ queryRange: async (_q, _w, _s, opts) => new Promise((_, reject) => opts?.signal?.addEventListener("abort", () => reject(new Error("aborted")))) }) });
+  const pending = aborted.client.callTool({ name: "ops_metrics_query", arguments: { promql: "up" } }, undefined, { signal: ac.signal });
+  setTimeout(() => ac.abort(), 20);
+  await assert.rejects(pending);
 });

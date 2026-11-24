@@ -41,6 +41,7 @@ test("ops_service_metrics reads the canonical labels, Cadvisor and Traefik serie
   near(m.get("traefik_requests")?.last, 10, 0.5, "req/s");
   near(m.get("traefik_5xx")?.last, 1, 0.1, "5xx/s");
   near(m.get("traefik_p95_latency")?.last, 0.46, 0.03, "p95");
+  assert.match(m.get("traefik_requests")?.note ?? "", /shop@swarm is shared by the whole stack/);
   assert.match(textOf(r), /^cpu \(cores\) [▁-█]+ /m);
 });
 
@@ -90,6 +91,12 @@ test("ops_metrics_query runs raw PromQL and maps Prometheus rejections", async (
   const items = r.structuredContent?.items as Array<{ labels: Record<string, string>; samples: unknown[]; last: number }>;
   assert.deepEqual(items.map((i) => i.labels.server).sort(), ["lab", "ovh-prod-1"]);
   assert.ok(items.every((i) => i.samples.length <= 60 && i.last === 1.5));
+  const many = await call("ops_metrics_query", { promql: '{__name__=~".+"}', since: "1h", max_bytes: 48 * 1024 });
+  assert.equal((many.structuredContent?.items as unknown[]).length, 20);
+  assert.equal(many.structuredContent?.truncated, true);
+  assert.match(many.structuredContent?.summary as string, /^20 series.*more than 20 series/);
+  const limited = await prom.queryRange('{__name__=~".+"}', { from: new Date(Date.now() - 3600_000), to: new Date() }, 60, { limit: 3 });
+  assert.equal(limited.length, 3);
   const bad = await call("ops_metrics_query", { promql: "sum(" });
   assert.match(textOf(bad), /^Error \[query_rejected\]: Prometheus rejected the query/);
 });
@@ -107,7 +114,7 @@ test("ops_alerts and the overview sections see the firing and pending rules", as
   const window = { from: new Date(Date.now() - 3600_000), to: new Date() };
   const registry = testRegistry();
   const alerts = await alertsSection.collect(ctx, registry.servers, window);
-  assert.deepEqual(alerts.get("ovh-prod-1"), { firing: 1, names: ["ItDiskFull"] });
+  assert.deepEqual(alerts.get("ovh-prod-1"), { firing: 1, names: ["ItDiskFull"], firing_without_server: 0, names_without_server: [], notes: ["Grafana alerts not included (not configured)"] });
   const metrics = await metricsSection.collect(ctx, registry.servers, window);
   const prod = metrics.get("ovh-prod-1")!;
   near(prod.cpu_pct, 25, 2, "overview cpu");

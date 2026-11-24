@@ -1,4 +1,5 @@
 import { redactAll } from "../platform/redact/secrets";
+import { errorMessage } from "../platform/util";
 import { ToolError } from "../tools/contract";
 import { backendJson } from "./http";
 import { readFileSync } from "node:fs";
@@ -24,9 +25,17 @@ export class GrafanaClient implements AlertSource {
   }
 }
 
-export function grafanaFromEnv(env: NodeJS.ProcessEnv): GrafanaClient | undefined {
+// Unset URL: Grafana is off. Unreadable token: warn once and answer every call with an error that ops_alerts reports as a note.
+export function grafanaFromEnv(env: NodeJS.ProcessEnv): AlertSource | undefined {
   const url = env.GRAFANA_URL?.trim();
+  if (!url) return undefined;
   const file = env.GRAFANA_TOKEN_FILE?.trim();
-  const token = file ? readFileSync(file, "utf8").trim() : undefined;
-  return url && token ? new GrafanaClient(url, token) : undefined;
+  try {
+    const token = file ? readFileSync(file, "utf8").trim() : "";
+    if (!token) throw new Error("no token");
+    return new GrafanaClient(url, token);
+  } catch (err) {
+    console.warn(`Grafana alerts disabled: cannot read GRAFANA_TOKEN_FILE (${redactAll(errorMessage(err))})`);
+    return { alerts: () => Promise.reject(new ToolError("backend_unavailable", "Grafana token file is missing or unreadable")) };
+  }
 }

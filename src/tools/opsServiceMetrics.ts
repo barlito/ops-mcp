@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { anyOf, eq } from "../metrics/labels";
-import { formatMetric, MAX_WINDOW_MS, metricItem, MetricItemSchema, type MetricItem, minStepSeconds } from "../metrics/series";
+import { NO_DATA, formatMetric, MAX_WINDOW_MS, metricItem, MetricItemSchema, type MetricItem, minStepSeconds } from "../metrics/series";
 import { clampWindow, defineTool, envelopeSchema, resolveServers, resolveWindow, scopeShape } from "./contract";
 
 const inputSchema = z.object({
@@ -13,7 +13,7 @@ const inputSchema = z.object({
 export const opsServiceMetrics = defineTool({
   name: "ops_service_metrics",
   description:
-    "Resource metrics of one service over a window of at most 7 days: CPU (cores), memory working set and % of its limit, container starts, network rx/tx, and from Traefik requests/s, 5xx/s and p95 latency. Each metric gives min/max/avg/last and a sparkline (max 30 points). A metric without series is null with a note, not an error. Traefik series are matched on the service label equal to the Swarm service name or to its stack prefix (carapp_php -> carapp_php or carapp).",
+    "Resource metrics of one service over a window of at most 7 days: CPU (cores), memory working set and % of its limit, container starts, network rx/tx, and from Traefik requests/s, 5xx/s and p95 latency. Each metric gives min/max/avg/last and a sparkline (max 30 points). A metric without series is null with a note, not an error. Traefik names its services after the traefik.http.services.<name> label, so its series are matched on the Swarm service name, its stack prefix (carapp_php -> carapp) or the auto-generated name (carapp-php); a note says when only the stack-level Traefik service matched.",
   inputSchema,
   outputSchema: envelopeSchema(MetricItemSchema),
   formatItem: formatMetric,
@@ -25,14 +25,16 @@ export const opsServiceMetrics = defineTool({
     const span = `${Math.round((window.to.getTime() - window.from.getTime()) / 1000)}s`;
     const sel = `${eq("server", args.server)},${eq("service_name", args.service)}`;
     const stack = args.service.includes("_") ? args.service.slice(0, args.service.indexOf("_")) : undefined;
-    const traefik = `${eq("server", args.server)},${anyOf("service", stack ? [args.service, stack] : [args.service], "@.+")}`;
+    const autoName = args.service.replace(/[^a-zA-Z0-9]/g, "-");
+    const names = [...new Set([args.service, ...(stack ? [stack] : []), autoName])];
+    const traefik = `${eq("server", args.server)},${anyOf("service", names, "@.+")}`;
     const started = `max_over_time(container_start_time_seconds{${sel}}[${span}])`;
     const requests = `traefik_service_requests_total{${traefik}}`;
 
     const ranged = (metric: string, unit: string, promql: string, emptyNote?: string): Promise<MetricItem> =>
-      ctx.prom.queryRange(promql, window, step, { signal: ctx.signal }).then((series) => metricItem(metric, unit, series[0], emptyNote));
+      ctx.prom.queryRange(promql, window, step, { signal: ctx.signal }).then((series) => metricItem(metric, unit, series[0], emptyNote, window.to.getTime() / 1000 - step));
 
-    const [cpu, memory, memoryPct, restarts, rx, tx, rps, errors, p95] = await Promise.all([
+    const [cpu, memory, memoryPct, restarts, rx, tx, rps, errors, p95, matched] = await Promise.all([
       ranged("cpu", "cores", `sum(rate(container_cpu_usage_seconds_total{${sel}}[${range}]))`),
       ranged("memory_working_set", "MiB", `sum(container_memory_working_set_bytes{${sel}}) / 1048576`),
       ranged("memory_of_limit", "%", `100 * sum(container_memory_working_set_bytes{${sel}}) / (sum(container_spec_memory_limit_bytes{${sel}}) > 0)`, "no memory limit set"),
@@ -44,10 +46,16 @@ export const opsServiceMetrics = defineTool({
       ranged("traefik_requests", "req/s", `sum(rate(${requests}[${range}]))`, "no Traefik traffic for this service name"),
       ranged("traefik_5xx", "req/s", `sum(rate(traefik_service_requests_total{${traefik},code=~"5.."}[${range}])) or (sum(rate(${requests}[${range}])) * 0)`, "no Traefik traffic for this service name"),
       ranged("traefik_p95_latency", "s", `histogram_quantile(0.95, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{${traefik}}[${range}])))`, "no Traefik traffic for this service name"),
+      ctx.prom.query(`count by (service) (max_over_time(${requests}[${span}]))`, window.to, { signal: ctx.signal }),
     ]);
 
-    const items = [cpu, memory, memoryPct, restarts, rx, tx, rps, errors, p95];
-    const withData = items.filter((i) => i.last !== null).length;
+    const matchedServices = matched.flatMap((s) => (s.labels.service ? [s.labels.service] : []));
+    const stackLevelOnly = stack !== undefined && matchedServices.length > 0 && matchedServices.every((m) => m.split("@")[0] === stack);
+    const shared = (i: MetricItem): MetricItem => (stackLevelOnly && i.last !== null && !i.note ? { ...i, note: `Traefik service ${matchedServices.join(", ")} is shared by the whole stack` } : i);
+    const all = [cpu, memory, memoryPct, restarts, rx, tx, shared(rps), shared(errors), shared(p95)];
+    const withData = all.filter((i) => i.last !== null).length;
+    // The generic "not running / not scraped" hint only makes sense when nothing at all was found.
+    const items = withData === 0 ? all : all.map((i) => (i.note === NO_DATA ? { ...i, note: "no data for this metric" } : i));
     const clamped = window.clamped ? " (window clamped to 7d)" : "";
     return {
       summary: `${args.service} on ${args.server}: ${withData} of ${items.length} metrics have data, step ${step}s${clamped}`,

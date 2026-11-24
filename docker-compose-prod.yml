@@ -22,9 +22,9 @@ services:
       - REGISTRY_PATH=/etc/ops-mcp/registry.yaml
       # Prometheus, reached over the shared obs_query network
       - PROM_URL=http://prometheus:9090
-      # Optional Grafana Alerting source: both must be set (token = path of a Docker secret file)
+      # Optional Grafana Alerting source: used only when GRAFANA_URL is set (the token is a Docker secret file)
       - GRAFANA_URL=${GRAFANA_URL:-}
-      - GRAFANA_TOKEN_FILE=${GRAFANA_TOKEN_FILE:-}
+      - GRAFANA_TOKEN_FILE=/run/secrets/grafana_token
       # Shown in the ready-to-paste `claude mcp add` command after credential creation
       - PUBLIC_MCP_URL=https://ops.barlito.fr/mcp
       # Swarm DNS for the Traefik tasks: only they may set X-Forwarded-For.
@@ -52,6 +52,11 @@ services:
         uid: "10001"
         gid: "10001"
         mode: 0400
+      - source: grafana_token
+        target: grafana_token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
     configs:
       - source: ops_registry
         target: /etc/ops-mcp/registry.yaml
@@ -72,6 +77,9 @@ services:
         max-file: "5"
     deploy:
       replicas: 1
+      resources:
+        limits:
+          memory: 512M
       # The named volume is node-local, and the Makefile's `docker exec`/`docker run -v` targets
       # (backup, restore, tokens) assume the task runs on the manager DOCKER_HOST points at.
       placement:
@@ -164,6 +172,10 @@ secrets:
   admin_web_secret:
     external: true
     name: ${ADMIN_WEB_SECRET_NAME:?ADMIN_WEB_SECRET_NAME is required}
+  # Holds the literal `unset` unless a Grafana token is provided (see the Makefile): ignored without GRAFANA_URL.
+  grafana_token:
+    external: true
+    name: ${GRAFANA_TOKEN_SECRET_NAME:?GRAFANA_TOKEN_SECRET_NAME is required}
 
 configs:
   # Swarm configs are immutable: the name carries a hash of the content (CONFIG_VERSION, set by the

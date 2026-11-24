@@ -24,6 +24,8 @@ export interface PromAlert {
 
 export interface CallOptions {
   signal?: AbortSignal;
+  // Maximum number of series Prometheus returns.
+  limit?: number;
 }
 
 export interface AlertSource {
@@ -93,23 +95,44 @@ export class PromClient implements PromApi {
     return data.alerts ?? [];
   }
 
-  private async slot(): Promise<() => void> {
-    for (;;) {
-      const release = this.limiter.acquire([]);
-      if (release) {
-        return () => {
-          release();
-          this.waiting.shift()?.();
-        };
-      }
-      await new Promise<void>((resolve) => this.waiting.push(resolve));
-    }
+  private wrap(release: () => void): () => void {
+    return () => {
+      release();
+      this.waiting.shift()?.();
+    };
+  }
+
+  // Waits for a free slot, at most the request timeout, and leaves the queue when the caller aborts.
+  private slot(signal: AbortSignal | undefined): Promise<() => void> {
+    if (signal?.aborted) return Promise.reject(new ToolError("cancelled", "Request cancelled."));
+    const free = this.limiter.acquire([]);
+    if (free) return Promise.resolve(this.wrap(free));
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const leave = (err: ToolError) => {
+        const i = this.waiting.indexOf(waiter);
+        if (i >= 0) this.waiting.splice(i, 1);
+        cleanup();
+        reject(err);
+      };
+      const onAbort = () => leave(new ToolError("cancelled", "Request cancelled."));
+      const timer = setTimeout(() => leave(new ToolError("backend_timeout", `Prometheus is busy: no free query slot within ${this.timeoutMs} ms.`)), this.timeoutMs);
+      const waiter = () => {
+        cleanup();
+        resolve(this.wrap(this.limiter.acquire([])!));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.waiting.push(waiter);
+    });
   }
 
   private async request(path: string, form: Record<string, string> | undefined, opts: CallOptions | undefined): Promise<unknown> {
-    const release = await this.slot();
+    const release = await this.slot(opts?.signal);
     try {
-      const params = form && { ...form, timeout: `${Math.max(1, Math.floor(this.timeoutMs / 1000) - 1)}s` };
+      const params = form && { ...form, ...(opts?.limit ? { limit: String(opts.limit) } : {}), timeout: `${Math.max(1, Math.floor(this.timeoutMs / 1000) - 1)}s` };
       const { status, body } = await backendJson("Prometheus", `${this.baseUrl.replace(/\/+$/, "")}${path}`, {
         method: params ? "POST" : "GET",
         headers: params ? { "content-type": "application/x-www-form-urlencoded" } : undefined,

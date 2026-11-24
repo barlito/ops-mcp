@@ -4,7 +4,7 @@ import type { PromSeries } from "../metrics/PromClient";
 import { connect, fakeProm, textOf } from "../test-support/mcp";
 import { opsHostMetrics } from "./opsHostMetrics";
 
-const s = (labels: Record<string, string>, values: number[]): PromSeries => ({ labels, points: values.map((v, i): [number, number] => [1000 + i * 75, v]) });
+const s = (labels: Record<string, string>, values: number[]): PromSeries => ({ labels, points: values.map((v, i): [number, number] => [1780315200 - (values.length - i) * 75, v]) });
 
 type Item = { metric: string; host: string | null; mountpoint?: string; last: number | null; days_until_full?: number | null; note?: string };
 
@@ -33,7 +33,7 @@ test("disks carry the days until full parsed from predict_linear, null when not 
   assert.match(textOf(r), /days_until_full=none/);
 });
 
-test("a disk without data has no prediction", async () => {
+test("without any series every metric is null with a note and disks have no prediction", async () => {
   const { call } = await connect([opsHostMetrics]);
   const items = (await call("ops_host_metrics", { server: "ovh-prod-1" })).structuredContent?.items as Item[];
   assert.equal(items.length, 9);

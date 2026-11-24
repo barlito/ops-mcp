@@ -4,7 +4,7 @@ import type { PromSeries } from "../metrics/PromClient";
 import { connect, fakeProm, textOf } from "../test-support/mcp";
 import { opsServiceMetrics } from "./opsServiceMetrics";
 
-const series = (values: number[]): PromSeries => ({ labels: {}, points: values.map((v, i): [number, number] => [1000 + i * 75, v]) });
+const series = (values: number[]): PromSeries => ({ labels: {}, points: values.map((v, i): [number, number] => [1780315200 - (values.length - i) * 75, v]) });
 const ramp = (n: number) => Array.from({ length: n }, (_, i) => i);
 
 test("returns stats and a sparkline per metric, null with a note when a series is missing", async () => {
@@ -40,18 +40,45 @@ test("every query is scoped by escaped labels and Traefik is matched on service 
     }),
   });
   await call("ops_service_metrics", { server: "ovh-prod-1", service: 'carapp_php"} or up{a="' });
-  assert.equal(seen.length, 9);
+  assert.equal(seen.length, 10);
   for (const q of seen.filter((q) => !q.includes("traefik"))) assert.match(q, /server="ovh-prod-1",service_name="carapp_php\\"\} or up\{a=\\""/);
   const traefik = seen.filter((q) => q.includes("traefik_service"));
-  assert.equal(traefik.length, 3);
-  for (const q of traefik) assert.ok(q.includes(String.raw`service=~"(carapp_php\\\"\\} or up\\{a\\=\\\"|carapp)@.+"`), q);
+  assert.equal(traefik.length, 4);
+  for (const q of traefik) assert.match(q, /service=~"(?:[^"\\]|\\.)*@\.\+"[,}]/, q);
 });
 
-test("a service without underscore is matched on its own name only", async () => {
+test("a service without underscore is matched on its own name and the auto-generated variant only", async () => {
   const seen: string[] = [];
   const { call } = await connect([opsServiceMetrics], { prom: fakeProm({ queryRange: async (q) => (seen.push(q), []) }) });
   await call("ops_service_metrics", { server: "ovh-prod-1", service: "traefik" });
   assert.ok(seen.some((q) => q.includes('service=~"(traefik)@.+"')));
+  seen.length = 0;
+  await call("ops_service_metrics", { server: "ovh-prod-1", service: "carapp_php" });
+  assert.ok(seen.some((q) => q.includes(String.raw`service=~"(carapp_php|carapp|carapp\\-php)@.+"`)));
+});
+
+test("a note says when only the stack-level Traefik service matched", async () => {
+  const withTraffic = (matched: string[]) =>
+    fakeProm({
+      queryRange: async (q) => (q.includes("traefik") ? [series([1, 2, 3])] : []),
+      query: async (q) => (q.startsWith("count by (service)") ? matched.map((service) => ({ labels: { service }, value: 1 })) : []),
+    });
+  const run = async (matched: string[]) => {
+    const { call } = await connect([opsServiceMetrics], { prom: withTraffic(matched) });
+    return (await call("ops_service_metrics", { server: "ovh-prod-1", service: "carapp_php" })).structuredContent?.items as Array<{ metric: string; note?: string }>;
+  };
+  const stackLevel = await run(["carapp@swarm"]);
+  assert.match(stackLevel.find((i) => i.metric === "traefik_requests")?.note ?? "", /carapp@swarm is shared by the whole stack/);
+  assert.equal(stackLevel.find((i) => i.metric === "cpu")?.note, "no data for this metric");
+  const exact = await run(["carapp_php@swarm"]);
+  assert.equal(exact.find((i) => i.metric === "traefik_requests")?.note, undefined);
+});
+
+test("a stale last sample is flagged", async () => {
+  const old = { labels: {}, points: [[1, 1], [2, 2]] as Array<[number, number]> };
+  const { call } = await connect([opsServiceMetrics], { prom: fakeProm({ queryRange: async (q) => (q.includes("container_cpu") ? [old] : []) }) });
+  const cpu = ((await call("ops_service_metrics", { server: "ovh-prod-1", service: "a_b" })).structuredContent?.items as Array<{ metric: string; note?: string }>)[0]!;
+  assert.match(cpu.note ?? "", /older than the end of the window/);
 });
 
 test("the window is clamped to 7 days and the step stays within 60 points", async () => {

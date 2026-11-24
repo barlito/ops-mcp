@@ -43,18 +43,18 @@ export const opsMetricsQuery = defineTool({
     const m = args.step ? STEP_RE.exec(args.step) : null;
     const requested = m ? Number(m[1]) * STEP_UNIT[m[2] as keyof typeof STEP_UNIT] : 0;
     const step = Math.max(minStepSeconds(window), requested);
-    const series = await ctx.prom.queryRange(args.promql, window, step, { signal: ctx.signal });
+    const series = await ctx.prom.queryRange(args.promql, window, step, { signal: ctx.signal, limit: MAX_SERIES + 1 });
     const items = series.slice(0, MAX_SERIES).map((s): Item => {
       const values = s.points.map(([, v]) => v);
       return { labels: s.labels, ...stats(values), sparkline: sparkline(downsample(values, SPARKLINE_POINTS)), samples: s.points.slice(0, MAX_POINTS) };
     });
     const notes = [
       requested > 0 && step > requested ? `step raised from ${args.step} to ${step}s` : "",
-      series.length > MAX_SERIES ? `showing the first ${MAX_SERIES}, narrow the query` : "",
+      series.length > MAX_SERIES ? `more than ${MAX_SERIES} series, showing the first ${MAX_SERIES}: narrow the query` : "",
       window.clamped ? "window clamped to 7d" : "",
     ].filter(Boolean);
     return {
-      summary: `${series.length} series, step ${step}s${notes.length ? `; ${notes.join("; ")}` : ""}`,
+      summary: `${series.length > MAX_SERIES ? MAX_SERIES : series.length} series, step ${step}s${notes.length ? `; ${notes.join("; ")}` : ""}`,
       items,
       truncated: series.length > MAX_SERIES,
       window: { from: window.from, to: window.to },

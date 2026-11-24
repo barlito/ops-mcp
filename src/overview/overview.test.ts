@@ -39,11 +39,12 @@ test("alerts: firing count and distinct names per server", async () => {
   const a = (alertname: string, server: string, state = "firing") => ({ labels: { alertname, server }, annotations: {}, state });
   const prom = fakeProm({ alerts: async () => [a("DiskFull", "ovh-prod-1"), a("DiskFull", "ovh-prod-1"), a("Cpu", "ovh-prod-1"), a("Soon", "ovh-prod-1", "pending"), a("Down", "lab")] });
   const parts = await alertsSection.collect(await ctx({ prom }), registry.servers, window);
-  assert.deepEqual(parts.get("ovh-prod-1"), { firing: 3, names: ["Cpu", "DiskFull"] });
-  assert.deepEqual(parts.get("lab"), { firing: 1, names: ["Down"] });
-  assert.equal(alertsSection.summarize(parts), "ovh-prod-1: 3 firing (Cpu, DiskFull); lab: 1 firing (Down)");
+  const NOTE = "Grafana alerts not included (not configured)";
+  assert.deepEqual(parts.get("ovh-prod-1"), { firing: 3, names: ["Cpu", "DiskFull"], firing_without_server: 0, names_without_server: [], notes: [NOTE] });
+  assert.deepEqual(parts.get("lab"), { firing: 1, names: ["Down"], firing_without_server: 0, names_without_server: [], notes: [NOTE] });
+  assert.equal(alertsSection.summarize(parts), `ovh-prod-1: 3 firing (Cpu, DiskFull); lab: 1 firing (Down); ${NOTE}`);
   const none = await alertsSection.collect(await ctx({}), registry.servers, window);
-  assert.equal(alertsSection.summarize(none), "ovh-prod-1: no firing alert; lab: no firing alert");
+  assert.equal(alertsSection.summarize(none), `ovh-prod-1: no firing alert; lab: no firing alert; ${NOTE}`);
 });
 
 test("ops_overview shows the metrics and alerts parts", async () => {
@@ -56,5 +57,18 @@ test("ops_overview shows the metrics and alerts parts", async () => {
   assert.ok(!r.isError);
   const item = (r.structuredContent?.items as Array<Record<string, unknown>>)[0]!;
   assert.deepEqual(item.metrics, { cpu_pct: 42, ram_pct: 42, disk_max_pct: 42 });
-  assert.deepEqual(item.alerts, { firing: 1, names: ["DiskFull"] });
+  assert.deepEqual(item.alerts, { firing: 1, names: ["DiskFull"], firing_without_server: 0, names_without_server: [], notes: ["Grafana alerts not included (not configured)"] });
+});
+
+test("alerts: unattributed firing alerts and source failures are never reported as all clear", async () => {
+  const { ToolError } = await import("../tools/contract");
+  const prom = fakeProm({ alerts: async () => [{ labels: { alertname: "Global" }, annotations: {}, state: "firing" }] });
+  const grafana = { alerts: async () => Promise.reject(new ToolError("backend_unavailable", "Grafana is unreachable")) };
+  const parts = await alertsSection.collect(await ctx({ prom, grafana }), registry.servers.slice(0, 1), window);
+  const part = parts.get("ovh-prod-1")!;
+  assert.equal(part.firing, 0);
+  assert.deepEqual([part.firing_without_server, part.names_without_server], [1, ["Global"]]);
+  assert.equal(alertsSection.summarize(parts), "ovh-prod-1: none attributed to this server; 1 firing without server label (Global); Grafana alerts unavailable: Grafana is unreachable");
+  const failing = await alertsSection.collect(await ctx({ grafana }), registry.servers.slice(0, 1), window);
+  assert.match(alertsSection.summarize(failing), /^ovh-prod-1: none attributed to this server; Grafana alerts unavailable/);
 });

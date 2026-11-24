@@ -152,3 +152,9 @@ test("a body that never finishes is a backend_timeout", async () => {
     await assert.rejects(new LokiClient({ url, timeoutMs: 150 }).queryRange(range), code("backend_timeout"));
   });
 });
+
+test("a result larger than the body cap is query_rejected", async () => {
+  await withLoki((_req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ status: "success", data: { resultType: "streams", result: [], pad: "x".repeat(5000) } })); }, async (url) => {
+    await assert.rejects(new LokiClient({ url, maxBodyBytes: 1000 }).queryRange(range), (e) => e instanceof ToolError && e.code === "query_rejected" && /too large/.test(e.message));
+  });
+});

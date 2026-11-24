@@ -44,10 +44,12 @@ function durationMs(text: string): number | undefined {
 export function analyzeLogql(logql: string): AnalyzedLogql {
   const { query, code } = scan(logql);
   if (/\b(?:line_format|label_format)\b/.test(code)) throw new ToolError("invalid_param", "line_format and label_format are not allowed: they could rewrite lines or labels around redaction.");
+  const isLog = query.trimStart().startsWith("{");
+  if (!isLog && /\|\s*(?:regexp|pattern)\b/.test(code)) throw new ToolError("invalid_param", "The regexp and pattern parsers are only allowed in log queries: in metric queries they could move a secret into a label.");
   const lookbacks = [...code.matchAll(/\[([^\]]*)\]/g)].map((m) => m[1]!.split(":")[0]!.trim()).concat([...code.matchAll(/\boffset\s+([0-9a-zµ]+)/g)].map((m) => m[1]!));
   for (const d of lookbacks) {
     const ms = durationMs(d);
     if (ms !== undefined && ms > MAX_LOOKBACK_MS) throw new ToolError("invalid_param", `Range and offset durations are limited to 7d, got ${d}.`);
   }
-  return { query, isLog: query.trimStart().startsWith("{") };
+  return { query, isLog };
 }

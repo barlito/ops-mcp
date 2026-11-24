@@ -25,15 +25,15 @@ export class GrafanaClient implements AlertSource {
   }
 }
 
-// Unset URL: Grafana is off. Unreadable token: warn once and answer every call with an error that ops_alerts reports as a note.
+// Unset URL, or a token file holding nothing or the `unset` placeholder: Grafana is off. Unreadable token: warn once and answer every call with an error that ops_alerts reports as a note.
 export function grafanaFromEnv(env: NodeJS.ProcessEnv): AlertSource | undefined {
   const url = env.GRAFANA_URL?.trim();
   if (!url) return undefined;
   const file = env.GRAFANA_TOKEN_FILE?.trim();
   try {
-    const token = file ? readFileSync(file, "utf8").trim() : "";
-    if (!token) throw new Error("no token");
-    return new GrafanaClient(url, token);
+    if (!file) throw new Error("GRAFANA_TOKEN_FILE is not set");
+    const token = readFileSync(file, "utf8").trim();
+    return token === "" || token === "unset" ? undefined : new GrafanaClient(url, token);
   } catch (err) {
     console.warn(`Grafana alerts disabled: cannot read GRAFANA_TOKEN_FILE (${redactAll(errorMessage(err))})`);
     return { alerts: () => Promise.reject(new ToolError("backend_unavailable", "Grafana token file is missing or unreadable")) };

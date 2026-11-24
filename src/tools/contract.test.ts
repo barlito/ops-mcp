@@ -450,3 +450,14 @@ test("the audit query hash ignores key order at every depth", async () => {
   const h = (stores.db.prepare("SELECT query_hash h FROM audit_log").all() as Array<{ h: string }>).map((r) => r.h);
   assert.equal(h[0], h[1]);
 });
+
+test("the audited query is redacted before it is truncated", async () => {
+  const { call, stores } = await connect([echo]);
+  const token = "ghp_" + "c".repeat(36);
+  // The token starts at char 217 of the JSON, so the 256-char cut would leave 39 of its 40 chars.
+  await call("test_echo", { server: "a".repeat(100), stack: "b".repeat(82), service: token });
+  const q = (stores.db.prepare("SELECT query FROM audit_log").get() as { query: string }).query;
+  assert.ok(q.length <= 256);
+  assert.ok(!q.includes("cccccccc"), q);
+  assert.match(q, /REDACTED GitHub token/);
+});

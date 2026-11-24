@@ -1,6 +1,6 @@
 # ops-mcp
 
-Strictly **read-only** MCP server that lets an agent diagnose Barlito production without SSH: Swarm state, logs (Loki), metrics (Prometheus), traces (Tempo) and deploys, filterable by server, stack and service.
+Strictly **read-only** MCP server that lets an agent diagnose Barlito production without SSH: Swarm state, logs (Loki), metrics (Prometheus) and deploys, filterable by server, stack and service.
 
 TypeScript, Node 24, Express 5, `@modelcontextprotocol/sdk` (stateless Streamable HTTP), zod 4, better-sqlite3. The auth, audit and admin platform is vendored from [second-brain-mcp](https://github.com/barlito/second-brain-mcp) (`src/platform/`, each file says which commit it comes from).
 

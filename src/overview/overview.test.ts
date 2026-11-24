@@ -39,9 +39,9 @@ test("alerts: firing count and distinct names per server", async () => {
   const a = (alertname: string, server: string, state = "firing") => ({ labels: { alertname, server }, annotations: {}, state });
   const prom = fakeProm({ alerts: async () => [a("DiskFull", "ovh-prod-1"), a("DiskFull", "ovh-prod-1"), a("Cpu", "ovh-prod-1"), a("Soon", "ovh-prod-1", "pending"), a("Down", "lab")] });
   const parts = await alertsSection.collect(await ctx({ prom }), registry.servers, window);
-  const NOTE = "Grafana alerts not included (not configured)";
-  assert.deepEqual(parts.get("ovh-prod-1"), { firing: 3, names: ["Cpu", "DiskFull"], firing_without_server: 0, names_without_server: [], notes: [NOTE] });
-  assert.deepEqual(parts.get("lab"), { firing: 1, names: ["Down"], firing_without_server: 0, names_without_server: [], notes: [NOTE] });
+  const NOTE = "Grafana alerts not included (Grafana not configured)";
+  assert.deepEqual(parts.get("ovh-prod-1"), { firing: 3, names: ["Cpu", "DiskFull"], firing_without_server: 0, names_without_server: [], notes: [NOTE], rules_configured: true });
+  assert.deepEqual(parts.get("lab"), { firing: 1, names: ["Down"], firing_without_server: 0, names_without_server: [], notes: [NOTE], rules_configured: true });
   assert.equal(alertsSection.summarize(parts), `ovh-prod-1: 3 firing (Cpu, DiskFull); lab: 1 firing (Down); ${NOTE}`);
   const none = await alertsSection.collect(await ctx({}), registry.servers, window);
   assert.equal(alertsSection.summarize(none), `ovh-prod-1: no firing alert; lab: no firing alert; ${NOTE}`);
@@ -57,7 +57,7 @@ test("ops_overview shows the metrics and alerts parts", async () => {
   assert.ok(!r.isError);
   const item = (r.structuredContent?.items as Array<Record<string, unknown>>)[0]!;
   assert.deepEqual(item.metrics, { cpu_pct: 42, ram_pct: 42, disk_max_pct: 42 });
-  assert.deepEqual(item.alerts, { firing: 1, names: ["DiskFull"], firing_without_server: 0, names_without_server: [], notes: ["Grafana alerts not included (not configured)"] });
+  assert.deepEqual(item.alerts, { firing: 1, names: ["DiskFull"], firing_without_server: 0, names_without_server: [], notes: ["Grafana alerts not included (Grafana not configured)"], rules_configured: true });
 });
 
 test("alerts: unattributed firing alerts and source failures are never reported as all clear", async () => {
@@ -71,4 +71,10 @@ test("alerts: unattributed firing alerts and source failures are never reported 
   assert.equal(alertsSection.summarize(parts), "ovh-prod-1: none attributed to this server; 1 firing without server label (Global); Grafana alerts unavailable: Grafana is unreachable");
   const failing = await alertsSection.collect(await ctx({ grafana }), registry.servers.slice(0, 1), window);
   assert.match(alertsSection.summarize(failing), /^ovh-prod-1: none attributed to this server; Grafana alerts unavailable/);
+});
+
+test("alerts: no rule group means no alert rules configured, not all clear", async () => {
+  const parts = await alertsSection.collect(await ctx({ prom: fakeProm({ hasRules: async () => false }) }), registry.servers, window);
+  assert.equal(parts.get("lab")?.rules_configured, false);
+  assert.match(alertsSection.summarize(parts), /^ovh-prod-1: no alert rules configured; lab: no alert rules configured; /);
 });

@@ -142,3 +142,19 @@ test("the series limit is sent when asked", async () => {
   await new PromClient(url).queryRange("up", win, 75, { limit: 21 });
   assert.equal(form.get("limit"), "21");
 });
+
+test("hasRules reflects the rule groups and is cached briefly", async () => {
+  let calls = 0;
+  let groups: unknown[] = [];
+  const url = await stub((req, res) => {
+    calls++;
+    assert.equal(req.url, "/api/v1/rules");
+    json(res, 200, { status: "success", data: { groups } });
+  });
+  const client = new PromClient(url);
+  assert.equal(await client.hasRules(), false);
+  groups = [{ name: "g" }];
+  assert.equal(await client.hasRules(), false);
+  assert.equal(calls, 1);
+  assert.equal(await new PromClient(url).hasRules(), true);
+});

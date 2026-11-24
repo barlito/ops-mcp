@@ -16,7 +16,7 @@ const RULES: [RegExp, string][] = [
   [/(?<![\w:])(?=[0-9a-f:]*[0-9a-f])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi, "<ip>"],
   [/\b(?:0x)?[0-9a-f]{8,}\b/gi, "<hex>"],
   [/"[^"\s]*"/g, '"<str>"'],
-  [/(?<![A-Za-z_\d.])\d+(?:\.\d+)?/g, "<n>"],
+  [/(?<![\d.])\d+(?:\.\d+)?/g, "<n>"],
 ];
 
 // Lines that differ only by ids, addresses, numbers, timestamps or quoted tokens share a pattern.

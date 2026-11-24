@@ -40,3 +40,8 @@ test("groupPatterns counts, tracks first/last seen and keeps the latest redacted
   assert.equal(g.example, "order 3 failed token=[REDACTED]");
   assert.equal(g.pattern, "order <n> failed token=[REDACTED]");
 });
+
+test("digits glued to letters are normalised too", () => {
+  assert.equal(fingerprint("unknown column c12 on worker-3"), "unknown column c<n> on worker-<n>");
+  assert.equal(fingerprint("unknown column c7 on worker-41"), fingerprint("unknown column c12 on worker-3"));
+});

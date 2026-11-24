@@ -16,7 +16,7 @@ before(async () => {
     res.setHeader("content-type", "application/json");
     if (req.url === "/version") res.end(JSON.stringify({ Version: "29.9.2" }));
     else if (req.url === "/info") res.end(JSON.stringify({ Swarm: { LocalNodeState: swarmState } }));
-    else if (req.url === "/slow") setTimeout(() => res.end("{}"), 500);
+    else if (req.url?.startsWith("/slow")) setTimeout(() => res.end("{}"), 500);
     else res.writeHead(403).end(JSON.stringify({ message: "forbidden" }));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -48,6 +48,7 @@ test("a forbidden endpoint is reported as an error", async () => {
 test("a slow proxy times out", async () => {
   const r = await new LocalDockerSource(url + "/slow-prefix", 50).info();
   assert.equal(r.reachable, false);
+  assert.equal(r.error, "timeout after 50 ms");
 });
 
 test("the factory builds local sources and refuses agent sources", () => {

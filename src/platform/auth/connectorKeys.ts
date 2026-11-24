@@ -1,8 +1,5 @@
 // vendored from second-brain-mcp@d4ba1c5
-// Connector keys: a fixed secret header (x-api-key, the only header name claude.ai connectors accept)
-// that a claude.ai custom connector or a Claude Code `--header` sends. Lookup is by SHA-256 hash; the
-// plaintext is also kept encrypted at rest (AES-256-GCM, key from ADMIN_WEB_SECRET via HKDF, see
-// sealed.ts) so the admin can reveal it again.
+// x-api-key is the only header name claude.ai connectors accept.
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Db } from "../db";
 import { seal as sealWith, unseal as unsealWith } from "./sealed";

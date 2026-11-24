@@ -1,5 +1,4 @@
 // vendored from second-brain-mcp@d4ba1c5
-// Credentials page (tokens and connector keys) and the one-time reveal pages.
 import { CONNECTOR_HEADER, type ConnectorKeyEntry } from "../auth/connectorKeys";
 import type { TokenListEntry } from "../auth/tokens";
 import { html, raw, SafeHtml } from "./html";

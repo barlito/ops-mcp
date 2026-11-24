@@ -33,8 +33,11 @@ export class LocalDockerSource implements ClusterSource {
       const reason = e.name === "TimeoutError" ? `timeout after ${this.timeoutMs} ms` : (e.cause?.code ?? e.message);
       throw new ToolError("server_unreachable", `Docker API unreachable: ${reason}`);
     }
-    if (res.status === 404) throw new ToolError("not_found", `${path.split("?")[0]} not found`);
-    if (!res.ok) throw new ToolError("server_unreachable", `${path.split("?")[0]} answered HTTP ${res.status}`);
+    if (!res.ok) {
+      await res.body?.cancel();
+      const endpoint = path.split("?")[0];
+      throw res.status === 404 ? new ToolError("not_found", `${endpoint} not found`) : new ToolError("server_unreachable", `${endpoint} answered HTTP ${res.status}`);
+    }
     return (await res.json()) as T;
   }
 

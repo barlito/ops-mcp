@@ -1,6 +1,4 @@
 // vendored from second-brain-mcp@d4ba1c5
-// AES-256-GCM sealing of small secrets at rest. The key is derived from the admin secret with HKDF
-// under a per-use label (never the secret itself), so each use has its own key.
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 
 const encKey = (secret: string, label: string): Buffer => Buffer.from(hkdfSync("sha256", secret, "", label, 32));

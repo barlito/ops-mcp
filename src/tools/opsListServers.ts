@@ -25,7 +25,7 @@ export const opsListServers = defineTool({
   async handler(_args, ctx) {
     const probe = async (server: ServerEntry): Promise<ClusterInfo> => {
       try {
-        return await ctx.cluster(server).info();
+        return await ctx.cluster(server).info({ signal: ctx.signal });
       } catch (err) {
         return { reachable: false, swarm: false, error: errorMessage(err) };
       }

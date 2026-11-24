@@ -2,6 +2,10 @@ import type { ServerEntry } from "../registry";
 import { LocalDockerSource } from "./LocalDockerSource";
 import type { NodeInfo, ServiceDetail, ServiceFilter, ServiceSummary, ServiceUpdate, StackInfo, TaskFilter, TaskInfo } from "./types";
 
+export interface CallOptions {
+  signal?: AbortSignal;
+}
+
 export interface ClusterInfo {
   reachable: boolean;
   dockerVersion?: string;
@@ -11,10 +15,6 @@ export interface ClusterInfo {
 
 // Read-only view of one server's cluster. Every result is sanitized (no env values, secrets or
 // unlisted labels); failures are ToolError "server_unreachable" or "not_found".
-export interface CallOptions {
-  signal?: AbortSignal;
-}
-
 export interface ClusterSource {
   info(opts?: CallOptions): Promise<ClusterInfo>;
   listNodes(opts?: CallOptions): Promise<NodeInfo[]>;

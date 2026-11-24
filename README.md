@@ -9,8 +9,12 @@ TypeScript, Node 24, Express 5, `@modelcontextprotocol/sdk` (stateless Streamabl
 | Tool | Description |
 |------|-------------|
 | `ops_list_servers` | Servers of the registry (slug, env, kind, tenant) and whether each is reachable |
+| `ops_logs_summary` | Log counts per service and level, plus the top recurring error patterns (normalised, with first/last seen and an example) |
+| `ops_logs_query` | Search logs by scope, substring, RE2 regex and level; redacted, cut to 400 chars, cursor pagination, window capped at 24h |
+| `ops_logs_context` | Lines around an instant for one service |
+| `ops_logs_query_raw` | Raw LogQL (log queries 24h, metric queries 7d, capped series and points) |
 
-Swarm state, logs and metrics tools arrive in the next phases. Every tool shares one contract (`src/tools/contract.ts`):
+Swarm state and metrics tools arrive in the next phases. Every tool shares one contract (`src/tools/contract.ts`):
 
 - Scope parameters: `server`, `stack` (label `service_namespace`), `service` (full Swarm name such as `carapp_php`, label `service_name`), `since` (`15m`, `1h`, `24h`, `7d` or RFC 3339, default `1h`), `until` (RFC 3339, default now).
 - One result envelope: `{ summary, items, truncated, next_cursor?, window, scope }`, as structured content plus one compact text block.
@@ -53,10 +57,15 @@ Nothing runs on the host: everything goes through Docker via `make`.
 make help        # all targets
 make typecheck   # tsc over sources and tests, in node:24-alpine
 make test        # node --test through tsx, in node:24-alpine
+make test.integration  # tools against a real Loki (throwaway compose project ops-mcp-it-logs)
 make build       # tsc to dist/
 make deploy      # build the image and deploy the local Swarm stack `ops-mcp`
 make token-create name=laptop
 ```
+
+## Logs (Loki)
+
+Log tools query Loki at `LOKI_URL` (default `http://loki:3100`) over the external overlay network `obs_query`, created by the obs stack (observability-stack). The ops-mcp stack therefore needs the obs stack deployed first, locally as in prod, otherwise `docker stack deploy` fails on the missing network. Stream labels used: `server`, `service_namespace` (tool param `stack`), `service_name` (tool param `service`); level filters use the structured metadata `detected_level`. User input only reaches LogQL as escaped string literals (`src/logs/selector.ts`), and returned lines are redacted (DSN passwords, Bearer/Basic, JWT, `password=`-style pairs, known token prefixes) then cut to 400 characters.
 
 After `make deploy`, with the local traefik-base running:
 

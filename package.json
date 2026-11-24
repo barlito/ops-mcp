@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
-    "test": "tsx --test $(find src -name '*.test.ts' | sort)"
+    "test": "tsx --test $(find src -name '*.test.ts' | sort)",
+    "test.integration": "tsx --test $(find src -name '*.it.ts' | sort)"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

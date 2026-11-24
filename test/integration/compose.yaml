@@ -1,0 +1,24 @@
+# Throwaway stack for `make test.integration`: a real Loki and the test runner, nothing published.
+name: ops-mcp-it-logs
+
+services:
+  loki:
+    image: grafana/loki:3.4
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./loki.yml:/etc/loki/loki.yml:ro
+    tmpfs:
+      - /loki:mode=1777
+
+  tests:
+    image: node:24.21-alpine
+    user: "${HOST_UID}:${HOST_GID}"
+    working_dir: ${ITEST_ROOT:?set by make}
+    volumes:
+      - ${ITEST_ROOT:?set by make}:${ITEST_ROOT:?set by make}
+    environment:
+      - HOME=/tmp/home
+      - LOKI_URL=http://loki:3100
+    command: npm run test.integration
+    depends_on:
+      - loki

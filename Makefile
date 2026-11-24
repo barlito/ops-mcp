@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test typecheck build deploy deploy.prod db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
+.PHONY: help install test test.integration typecheck build deploy deploy.prod db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
 
 stack_name=ops-mcp
 service=ops-mcp
@@ -63,6 +63,12 @@ typecheck: node_modules ## Typecheck sources and tests (in Docker)
 
 test: node_modules ## Run the test suite (in Docker)
 	$(NODE) npm test
+
+# Real Loki in a throwaway compose project (ops-mcp-it-logs), always torn down afterwards.
+export ITEST_ROOT := $(CURDIR)
+it_compose=docker compose -f test/integration/compose.yaml
+test.integration: node_modules ## Run the integration tests against a real Loki (in Docker)
+	trap '$(it_compose) down -v --remove-orphans' EXIT; $(it_compose) run --rm tests
 
 build: node_modules ## Compile TypeScript to dist/ (in Docker)
 	$(NODE) npm run build

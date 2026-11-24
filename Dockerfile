@@ -1,5 +1,5 @@
 # Minor frozen, patches float (rebuilt at each release); bumped deliberately.
-FROM node:24.21-alpine AS base
+FROM node:24.22-alpine AS base
 
 # ────────────────────────────────────────────────────────────────
 # prod-deps stage: production node_modules only. Depends solely on the

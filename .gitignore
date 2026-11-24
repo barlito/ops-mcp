@@ -1,0 +1,11 @@
+.env
+node_modules/
+dist/
+
+# SQLite database (DB_PATH default /data/ops.db) and local deploy secrets must never be committed.
+data/
+
+# Deploy scratch (Makefile mark_service)
+.service-mark
+
+.claude/worktrees/

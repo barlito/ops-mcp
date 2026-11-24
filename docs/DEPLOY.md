@@ -21,7 +21,7 @@ Releases are cut with GitHub Releases and deployed with GitHub Actions. Known ga
 - Environment `production` (deployment branches: tag pattern `v*` for deploy, the default branch for rollback), with:
   - variable `SERVER_HOST`;
   - secrets `SERVER_USERNAME`, `SERVER_PORT`, `SERVER_HOST_KEY` (full `known_hosts` line pinning the host, e.g. `[1.2.3.4]:3333 ssh-ed25519 AAAA...`; there is no `ssh-keyscan` fallback), `SSH_PRIVATE_KEY`, `DOCKER_HUB_USERNAME`, `DOCKER_HUB_READ_ONLY_ACCESS_TOKEN` (deploy/rollback, no fallback), `ADMIN_PROXY_SECRET`, `ADMIN_WEB_SECRET`;
-  - secrets `GRAFANA_URL`, `GRAFANA_TOKEN`, `GH_DEPLOYMENTS_TOKEN` (fine-grained read-only token for the deployments history, phase 6) and `AUTHELIA_SESSION_COOKIE`: all four must exist (the shared workflow fails on a missing `env-secrets` name and GitHub secrets cannot be empty). Set the value `unset` when not used (no Grafana, cookie `authelia_session`): `make deploy.prod` maps it to empty or to a placeholder Docker secret. The shared workflow exports secrets only, never variables.
+  - secrets `GRAFANA_URL`, `GRAFANA_TOKEN`, `GH_DEPLOYMENTS_TOKEN` (fine-grained read-only token for the deployments history, phase 6) and `AUTHELIA_SESSION_COOKIE`: all four must exist (the shared workflow fails on a missing `env-secrets` name and GitHub secrets cannot be empty). `GRAFANA_URL` is `http://grafana:3000` (reachable over `traefik_traefik_proxy`; the public URL goes through Authelia and breaks Bearer auth) or `unset`. Set the value `unset` when not used (no Grafana, cookie `authelia_session`): `make deploy.prod` maps it to empty or to a placeholder Docker secret. The shared workflow exports secrets only, never variables.
 - Repository secrets: `DOCKER_HUB_USERNAME`, `DOCKER_HUB_READ_WRITE_DELETE_ACCESS_TOKEN` (release only).
 - Each deploy or rollback run creates a GitHub Deployment on `production` (tag, commit, run, status).
 - Docker Hub: private or public repository `barlito/ops-mcp`.
@@ -38,6 +38,8 @@ The MCP route has no Authelia on purpose (claude.ai cannot pass it): it is prote
 
 ## First deploy checklist
 
+- [ ] The observability stack with phase 0 (observability-stack#6) is deployed: ops-mcp joins its external network `obs_query`, otherwise the first `deploy.prod` fails with "network obs_query not found".
+- [ ] Each app service to be tracked carries the label `fr.barlito.repo` (or has a `stack_projects` registry entry), used by phase 6.
 - [ ] GitHub secrets and variables above are set; Docker Hub repo `barlito/ops-mcp` exists.
 - [ ] DNS records and the Authelia access rule exist.
 - [ ] Create the release, then `gh workflow run deploy.yaml --ref vX.Y.Z -f re-deploy=true`.

@@ -15,7 +15,7 @@ TypeScript, Node 24, Express 5, `@modelcontextprotocol/sdk` (stateless Streamabl
 | `ops_list_tasks` | Tasks of a stack or service with error, exit code and timestamps, paginated |
 | `ops_recent_deploys` | Services updated in the window with update state and image before/after |
 
-Swarm state, logs and metrics tools arrive in the next phases. Every tool shares one contract (`src/tools/contract.ts`):
+Log and metric tools arrive in the next phases. Every tool shares one contract (`src/tools/contract.ts`):
 
 - Scope parameters: `server`, `stack` (label `service_namespace`), `service` (full Swarm name such as `carapp_php`, label `service_name`), `since` (`15m`, `1h`, `24h`, `7d` or RFC 3339, default `1h`), `until` (RFC 3339, default now).
 - One result envelope: `{ summary, items, truncated, next_cursor?, window, scope }`, as structured content plus one compact text block.

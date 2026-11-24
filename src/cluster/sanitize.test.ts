@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { filterLabels, parseImage, redactArgs, redactText, sanitizeNode, sanitizeServiceDetail, sanitizeServiceSummary, sanitizeTask, sanitizeUpdate, traefikRoutes } from "./sanitize";
+import { failedImage, filterLabels, parseImage, redactArgs, redactText, sanitizeNode, sanitizeServiceDetail, sanitizeServiceSummary, sanitizeTask, sanitizeUpdate, traefikRoutes } from "./sanitize";
 import { groupStacks, isDegraded } from "./swarm";
 import { FIXTURE_SECRETS, rawFixtures } from "../test-support/dockerStub";
 
@@ -22,7 +22,7 @@ test("no sanitizer output contains a fixture secret", () => {
 
 test("the fixtures really contain the secrets the sanitizer must drop", () => {
   const raw = JSON.stringify(rawFixtures);
-  for (const secret of FIXTURE_SECRETS.filter((s) => s !== "internal.note")) assert.ok(raw.includes(secret), `fixture lacks ${secret}`);
+  for (const secret of FIXTURE_SECRETS) assert.ok(raw.includes(secret), `fixture lacks ${secret}`);
 });
 
 test("service detail keeps names of secrets and configs, never their ids", () => {
@@ -33,11 +33,13 @@ test("service detail keeps names of secrets and configs, never their ids", () =>
 
 test("service detail maps the spec to explicit fields", () => {
   const d = sanitizeServiceDetail(rawFixtures.inspect, { RunningTasks: 0, DesiredTasks: 1 });
-  assert.deepEqual(d.image, { name: "ghcr.io/barlito/shop", tag: "1.5.0", digest: "sha256:111111111111" });
-  assert.deepEqual(d.previous_image, { name: "ghcr.io/barlito/shop", tag: "1.4.2", digest: "sha256:222222222222" });
+  assert.deepEqual(d.image, { name: "ghcr.io/barlito/shop", tag: "1.4.2", digest: "sha256:222222222222" });
+  assert.equal(d.previous_image, undefined);
   assert.deepEqual([d.mode, d.desired, d.running, d.stack], ["replicated", 1, 0, "shop"]);
-  assert.deepEqual(d.update_status, { state: "rollback_completed", message: "rollback completed", started_at: "2026-06-01T11:40:02.001Z", completed_at: "2026-06-01T11:42:10.552Z" });
-  assert.deepEqual(d.constraints, ["node.role == worker"]);
+  assert.deepEqual(d.update_status, { state: "rollback_completed", message: "rollback completed; password=[REDACTED]", started_at: "2026-06-01T11:40:02.001Z", completed_at: "2026-06-01T11:42:10.552Z" });
+  assert.deepEqual(d.constraints, ["node.role == worker", "node.labels.apikey=[REDACTED]"]);
+  assert.deepEqual(d.command, ["sh", "-c", "psql postgresql://[REDACTED]@db/app -c select1"]);
+  assert.deepEqual(d.routes, [{ router: "shop", hosts: ["shop.barlito.fr", "www.shop.barlito.fr"] }]);
   assert.deepEqual(d.limits, { nano_cpus: 500000000, memory_bytes: 536870912 });
   assert.deepEqual(d.reservations, { memory_bytes: 134217728 });
   assert.deepEqual(d.ports, [{ protocol: "tcp", target: 8080, published: 8080, mode: "ingress" }]);
@@ -111,4 +113,38 @@ test("degraded means running < desired, except for job modes", () => {
 
 test("groupStacks ignores services outside a stack and sorts by name", () => {
   assert.deepEqual(groupStacks(rawFixtures.services.map((s) => sanitizeServiceSummary(s))).map((s) => [s.name, s.services.length]), [["obs", 1], ["shop", 2]]);
+});
+
+test("redaction stays fast on adversarial input", () => {
+  const inputs = ["a".repeat(10_000), "password".repeat(1_250), `${"-".repeat(5_000)}key${"-".repeat(5_000)}`, "x://".repeat(2_500), `${"a:".repeat(5_000)}@`];
+  for (const input of inputs) {
+    const start = performance.now();
+    redactText(input);
+    redactArgs([input, input]);
+    assert.ok(performance.now() - start < 50, `slow on ${input.slice(0, 12)}`);
+  }
+});
+
+test("emitted text fields are bounded", () => {
+  const long = "e".repeat(5_000);
+  const task = sanitizeTask({ ID: "t", ServiceID: "s", Status: { State: "failed", Err: long } }, new Map(), new Map());
+  assert.equal(task.error?.length, 300);
+  const labels = filterLabels(Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`fr.barlito.l${i}`, long])));
+  assert.equal(Object.keys(labels).length, 15);
+  assert.ok(Object.values(labels).every((v) => v.length <= 120));
+});
+
+test("failedImage picks the newest failed task running another image than the current one", () => {
+  const task = (id: string, state: string, at: string, image: string) => ({ ID: id, UpdatedAt: at, Status: { State: state, Timestamp: at }, Spec: { ContainerSpec: { Image: image } } });
+  const current = parseImage("app:1.4.2@sha256:" + "2".repeat(64));
+  assert.deepEqual(
+    failedImage([task("a", "failed", "2026-06-01T10:00:00Z", "app:1.4.2"), task("b", "failed", "2026-06-01T11:00:00Z", "app:1.5.0"), task("c", "failed", "2026-06-01T09:00:00Z", "app:1.3.0"), task("d", "running", "2026-06-01T12:00:00Z", "app:1.6.0")], current),
+    { name: "app", tag: "1.5.0" },
+  );
+  assert.equal(failedImage([task("a", "failed", "2026-06-01T10:00:00Z", "app:1.4.2")], current), undefined);
+});
+
+test("a task of an unlisted service or node falls back to short ids", () => {
+  const t = sanitizeTask({ ID: "t", ServiceID: "abcdefghijklmnop", NodeID: "zyxwvutsrqponm" }, new Map(), new Map());
+  assert.deepEqual([t.service, t.node], ["abcdefghijkl", "zyxwvutsrqpo"]);
 });

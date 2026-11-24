@@ -79,6 +79,7 @@ export const ServiceUpdateSchema = z.object({
   update_status: UpdateStatusSchema.optional(),
   image: ImageRefSchema,
   previous_image: ImageRefSchema.optional(),
+  failed_image: ImageRefSchema.optional(),
 });
 export type ServiceUpdate = z.infer<typeof ServiceUpdateSchema>;
 

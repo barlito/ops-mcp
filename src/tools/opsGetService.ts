@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ServiceDetailSchema, TaskSchema } from "../cluster/types";
-import { defineTool, envelopeSchema, resolveServers } from "./contract";
+import { defineTool, envelopeSchema, resolveServers, scopeShape } from "./contract";
 
 const MAX_TASKS = 10;
 
@@ -12,8 +12,8 @@ export const opsGetService = defineTool({
   description:
     "Inspect one Swarm service: image and tag, replicas running/desired, last update status (rollback, failure), published ports, routes, placement constraints, resource limits, whitelisted labels, and its 10 most recent tasks with their errors and exit codes. Environment variables and secret values are never returned. Use it to find out why a service is down or what it runs.",
   inputSchema: z.object({
-    server: z.string().describe("Server slug (see ops_list_servers)."),
-    service: z.string().describe("Full Swarm service name, e.g. carapp_php."),
+    server: scopeShape.server.unwrap().describe("Server slug (see ops_list_servers)."),
+    service: scopeShape.service.unwrap().describe("Full Swarm service name, e.g. carapp_php."),
   }),
   outputSchema: envelopeSchema(ItemSchema),
   formatItem: (s: Item) =>
@@ -21,7 +21,8 @@ export const opsGetService = defineTool({
   async handler(args, ctx) {
     const [server] = resolveServers(ctx.registry, args.server);
     const source = ctx.cluster(server!);
-    const [service, tasks] = await Promise.all([source.getService(args.service, { signal: ctx.signal }), source.listTasks({ service: args.service }, { signal: ctx.signal })]);
+    const service = await source.getService(args.service, { signal: ctx.signal });
+    const tasks = await source.listTasks({ service: service.id }, { signal: ctx.signal });
     return {
       summary: `${service.name} ${service.running}/${service.desired} running${service.update_status ? `, last update ${service.update_status.state}` : ""}`,
       items: [{ ...service, server: server!.slug, tasks: tasks.slice(0, MAX_TASKS) }],

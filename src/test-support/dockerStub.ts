@@ -30,7 +30,19 @@ export const FIXTURE_SECRETS = [
   "PUBLICKEY",
   "fake-proxy-secret",
   "X-Proxy-Secret",
-  "internal.note",
+  "fake-internal-note",
+  "fake-cmd-secret",
+  "fake-pass",
+  "fake-mount-secret",
+  "fake-hosts-secret",
+  "fake-dns-secret",
+  "fake-task-label-secret",
+  "fake-node-label-secret",
+  "fake-label-secret",
+  "fake-rule-secret",
+  "fake-update-secret",
+  "fake-constraint-secret",
+  "fake-err-secret",
 ];
 
 type Filters = Record<string, string[]>;
@@ -48,6 +60,7 @@ export async function startDockerStub(): Promise<{ url: string; requests: string
     const serviceName = (s: RawService): string => s.Spec?.Name ?? "";
     if (url.pathname === "/version") return send(200, { Version: "29.9.2" });
     if (url.pathname === "/info") return send(200, { Swarm: { LocalNodeState: "active" } });
+    if (url.pathname === "/redirect/nodes") return void res.writeHead(301, { location: "/nodes" }).end();
     if (url.pathname === "/nodes") return send(200, rawFixtures.nodes);
     if (url.pathname === "/services") {
       const list = rawFixtures.services.filter(

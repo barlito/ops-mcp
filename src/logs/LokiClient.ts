@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SlotLimiter } from "../platform/slotLimiter";
+import { BodyTooLargeError, readCapped } from "../platform/readCapped";
 import { redactAll } from "../platform/redact/secrets";
 import { ToolError } from "../tools/contract";
 
@@ -7,6 +8,7 @@ const DEFAULT_URL = "http://loki:3100";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_CONCURRENCY = 4;
 const MAX_ERROR_CHARS = 300;
+const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const QUEUE_WAIT_MS = 5000;
 const QUEUE_POLL_MS = 25;
 
@@ -68,8 +70,10 @@ export class LokiClient implements LokiApi {
   private readonly timeoutMs: number;
   private readonly limiter: SlotLimiter;
   private readonly queueWaitMs: number;
+  private readonly maxBodyBytes: number;
 
-  constructor(opts: { url?: string; timeoutMs?: number; concurrency?: number; queueWaitMs?: number } = {}) {
+  constructor(opts: { url?: string; timeoutMs?: number; concurrency?: number; queueWaitMs?: number; maxBodyBytes?: number } = {}) {
+    this.maxBodyBytes = opts.maxBodyBytes ?? MAX_BODY_BYTES;
     this.queueWaitMs = opts.queueWaitMs ?? QUEUE_WAIT_MS;
     this.url = (opts.url ?? DEFAULT_URL).replace(/\/+$/, "");
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -107,8 +111,9 @@ export class LokiClient implements LokiApi {
       let body: string;
       try {
         res = await fetch(`${this.url}${path}?${params}`, { signal: request });
-        body = await res.text();
+        body = await readCapped(res, this.maxBodyBytes, request);
       } catch (err) {
+        if (err instanceof BodyTooLargeError) throw new ToolError("query_rejected", "Loki result too large, narrow the query (scope, window or limit).");
         if (signal?.aborted) throw new ToolError("cancelled", "The request was cancelled.");
         if (err instanceof Error && err.name === "TimeoutError") throw new ToolError("backend_timeout", `Loki did not answer within ${this.timeoutMs / 1000}s.`);
         throw new ToolError("backend_unavailable", "Loki is unreachable.");

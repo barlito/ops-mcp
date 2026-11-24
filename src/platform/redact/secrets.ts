@@ -19,17 +19,25 @@ const PATTERNS: [string, RegExp][] = [
 ];
 
 // Contextual secrets keep their key and are replaced in place; they run before PATTERNS.
-// The key may be glued to an uppercase prefix (PGPASSWORD) but not to lowercase letters or digits.
-const WORDS = String.raw`password|passwd|pwd|secret|token|api[_-]?key`;
-const KEY = String.raw`(?-i:(?<![a-z0-9]))(?:${WORDS})`;
+// A keyword starts a name segment (not glued to lowercase letters or digits, so DB_PASS, PGPASSWORD and
+// x-api-key match) and is not followed by a lowercase letter (so tokens, passwordless and monkey do not).
+const WORDS = String.raw`password|passwd|pass|pwd|secret|token|api[_-]?key|key|auth|dsn|credential|cookie|session`;
+const KEYWORD = String.raw`(?-i:(?<![a-z0-9]))(?:${WORDS})(?-i:(?![a-z]))`;
+const SUFFIX = String.raw`[\w.-]{0,64}`;
 const VALUE = String.raw`(?:"[^"]*"|'[^']*'|[^\s&"',;]+)`;
+const SENSITIVE_NAME = new RegExp(KEYWORD, "i");
+
+// Whether a flag or variable name (--api-key, DB_PASS) holds a secret.
+export const isSensitiveName = (name: string): boolean => name.length <= 140 && SENSITIVE_NAME.test(name);
+
 const REPLACERS: [RegExp, string][] = [
   // user:password@host, the password may itself contain "@": it ends at the last "@" of the authority.
   [/(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*:\/\/[^\s:@/'"]*):[^\s'"/]+@/gi, "$1:[REDACTED]@"],
-  [/(authorization["']?\s*[:=]\s*["']?(?:bearer|basic|token)\s+)[^\s"',;]+/gi, "$1[REDACTED]"],
+  [/(authorization["']?\s*[:=]\s*["']?(?:(?:bearer|basic|token)\s+)?)[^\s"',;]+/gi, "$1[REDACTED]"],
   [/(?<![a-z0-9])bearer\s+[A-Za-z0-9._~+/=-]{20,}/gi, "Bearer [REDACTED]"],
-  [new RegExp(String.raw`("[\w.-]{0,40}?(?:${WORDS})"\s*:\s*)"(?:[^"\\]|\\.)*"`, "gi"), '$1"[REDACTED]"'],
-  [new RegExp(String.raw`(${KEY}["']?\s*[:=]\s*)(?!["']?\[REDACTED)${VALUE}`, "gi"), "$1[REDACTED]"],
+  [/((?<![a-z0-9])(?:set-)?cookie\s*:\s*)[^\r\n]+/gi, "$1[REDACTED]"],
+  [new RegExp(String.raw`("[\w.-]{0,40}?${KEYWORD}[\w.-]{0,40}"\s*:\s*)"(?:[^"\\]|\\.)*"`, "gi"), '$1"[REDACTED]"'],
+  [new RegExp(String.raw`(${KEYWORD}${SUFFIX}["']?\s*[:=]\s*)(?!["']?\[REDACTED)${VALUE}`, "gi"), "$1[REDACTED]"],
 ];
 
 export function findSecret(text: string): { kind: string; line: number } | undefined {

@@ -20,7 +20,7 @@ const stamp = (): string => String((BigInt(baseMs) + BigInt(tick++) * 1000n) * 1
 const apiLines = [
   ...Array.from({ length: 12 }, (_, i) => `level=error msg="payment failed" order=${4000 + i * 7} user=${crypto.randomUUID()} ip=10.0.${i}.${i + 1}`),
   ...Array.from({ length: 6 }, (_, i) => `level=info msg="request served" path=/health took=${i}ms`),
-  'level=error msg="cannot connect" dsn=postgres://shop:Sup3rSecretPw@db:5432/shop',
+  'level=error msg="cannot connect" conn=postgres://shop:Sup3rSecretPw@db:5432/shop',
   "level=warn msg=\"slow query\" took=1800ms",
   '{"level":"info","msg":"login","user":"bob","password":"hunter2"}',
 ];
@@ -89,7 +89,7 @@ test("ops_logs_query filters, redacts DSN passwords and pages without loss", asy
   const { call } = await connect([opsLogsQuery], { loki, now: () => new Date() });
   const dsn = env(await call("ops_logs_query", { server: SERVER, contains: "cannot connect" }));
   assert.equal(dsn.items.length, 1);
-  assert.equal(dsn.items[0]!.line, 'level=error msg="cannot connect" dsn=postgres://***@db:5432/shop');
+  assert.equal(dsn.items[0]!.line, 'level=error msg="cannot connect" conn=postgres://***@db:5432/shop');
   assert.equal(dsn.items[0]!.level, "error");
 
   const re = env(await call("ops_logs_query", { server: SERVER, service: "shop_api", regex: "payment (failed|ok)", level: "error" }));

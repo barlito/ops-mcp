@@ -1,4 +1,4 @@
-import { redactSecrets } from "../platform/redact/secrets";
+import { isSensitiveName, redactSecrets } from "../platform/redact/secrets";
 import { imageLabel, timeOf } from "./swarm";
 import {
   type ImageRef,
@@ -66,9 +66,6 @@ export interface RawNode {
 }
 
 // Bounded quantifiers and bounded inputs: these run on untrusted text.
-const SENSITIVE_NAME = String.raw`[\w.-]{0,64}(?:pass|secret|token|key|dsn|credential|auth)[\w.-]{0,64}`;
-const KEY_VALUE = new RegExp(`(${SENSITIVE_NAME}=)\\S+`, "gi");
-const SENSITIVE_FLAG = new RegExp(`^--?${SENSITIVE_NAME}$`, "i");
 const URL_USERINFO = /(\b[a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/@]{1,128}@/gi;
 const MAX_TEXT_CHARS = 500;
 const MAX_ERROR_CHARS = 300;
@@ -85,7 +82,7 @@ const ROUTER_RULE = /^traefik\.(?:http|tcp)\.routers\.(.+)\.rule$/;
 
 // Truncates first: the output is bounded and the regexes never see more than `max` chars.
 export function redactText(text: string, max = MAX_TEXT_CHARS): string {
-  return redactSecrets(text.slice(0, max).replace(URL_USERINFO, "$1[REDACTED]@").replace(KEY_VALUE, "$1[REDACTED]"));
+  return redactSecrets(text.slice(0, max).replace(URL_USERINFO, "$1[REDACTED]@"));
 }
 
 // A sensitive flag given without `=` hides the next argument too.
@@ -96,7 +93,7 @@ export function redactArgs(args: string[]): string[] {
       maskNext = false;
       return "[REDACTED]";
     }
-    const flag = arg.length <= 140 && SENSITIVE_FLAG.test(arg);
+    const flag = /^--?[\w.-]+$/.test(arg) && isSensitiveName(arg);
     maskNext = flag;
     return flag ? arg : redactText(arg, MAX_ARG_CHARS);
   }).slice(0, MAX_ARGS);

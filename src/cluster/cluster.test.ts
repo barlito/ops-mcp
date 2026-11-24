@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { cachedClusterSources, createClusterSource, UnsupportedSourceError } from "./ClusterSource";
 import { LocalDockerSource } from "./LocalDockerSource";
 import { testRegistry } from "../test-support/fixtures";
+import { stubSource } from "../test-support/mcp";
 
 let server: Server;
 let url: string;
@@ -60,7 +61,7 @@ test("cachedClusterSources builds one source per server", () => {
   let built = 0;
   const get = cachedClusterSources((s) => {
     built++;
-    return { info: async () => ({ reachable: true, swarm: true, error: s.slug }) };
+    return stubSource({ info: async () => ({ reachable: true, swarm: true, error: s.slug }) });
   });
   const [a, b] = testRegistry().servers;
   assert.equal(get(a!), get(a!));

@@ -9,8 +9,13 @@ TypeScript, Node 24, Express 5, `@modelcontextprotocol/sdk` (stateless Streamabl
 | Tool | Description |
 |------|-------------|
 | `ops_list_servers` | Servers of the registry (slug, env, kind, tenant) and whether each is reachable |
+| `ops_overview` | Per-server health summary: nodes, degraded services, recent failed tasks (log, metric and alert sections plug in later) |
+| `ops_list_stacks` | Swarm stacks with project, health, images and last update |
+| `ops_get_service` | One service, sanitized (no env, no secret values), with its last tasks |
+| `ops_list_tasks` | Tasks of a stack or service with error, exit code and timestamps, paginated |
+| `ops_recent_deploys` | Services updated in the window with update state and image before/after |
 
-Swarm state, logs and metrics tools arrive in the next phases. Every tool shares one contract (`src/tools/contract.ts`):
+Log and metric tools arrive in the next phases. Every tool shares one contract (`src/tools/contract.ts`):
 
 - Scope parameters: `server`, `stack` (label `service_namespace`), `service` (full Swarm name such as `carapp_php`, label `service_name`), `since` (`15m`, `1h`, `24h`, `7d` or RFC 3339, default `1h`), `until` (RFC 3339, default now).
 - One result envelope: `{ summary, items, truncated, next_cursor?, window, scope }`, as structured content plus one compact text block.

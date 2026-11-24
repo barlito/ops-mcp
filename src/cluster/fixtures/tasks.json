@@ -1,0 +1,125 @@
+[
+  {
+    "ID": "t4sk0000000000000000fail1",
+    "Version": {
+      "Index": 4810
+    },
+    "CreatedAt": "2026-06-01T11:58:00.000Z",
+    "UpdatedAt": "2026-06-01T11:58:05.000Z",
+    "Slot": 1,
+    "NodeID": "node1manager0000000000000a",
+    "ServiceID": "svc-shop-web",
+    "Spec": {
+      "ContainerSpec": {
+        "Image": "ghcr.io/barlito/shop:1.5.0@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "Env": [
+          "DATABASE_URL=postgresql://app:fake-db-password@db:5432/app",
+          "APP_SECRET=fake-app-secret-for-tests"
+        ],
+        "Labels": {
+          "fake.task.label": "fake-task-label-secret"
+        }
+      }
+    },
+    "Status": {
+      "Timestamp": "2026-06-01T11:58:04.500Z",
+      "State": "failed",
+      "Message": "started",
+      "Err": "task: non-zero exit (1)",
+      "ContainerStatus": {
+        "ContainerID": "c0ffee",
+        "PID": 0,
+        "ExitCode": 1
+      }
+    },
+    "DesiredState": "shutdown"
+  },
+  {
+    "ID": "t4sk0000000000000000fail0",
+    "Version": {
+      "Index": 4800
+    },
+    "CreatedAt": "2026-06-01T11:57:00.000Z",
+    "UpdatedAt": "2026-06-01T11:57:05.000Z",
+    "Slot": 1,
+    "NodeID": "node1manager0000000000000a",
+    "ServiceID": "svc-shop-web",
+    "Spec": {
+      "ContainerSpec": {
+        "Image": "ghcr.io/barlito/shop:1.5.0",
+        "Env": [
+          "SENTRY_DSN=https://fake-sentry-key@o1.ingest.sentry.io/2"
+        ],
+        "Labels": {
+          "fake.task.label": "fake-task-label-secret"
+        }
+      }
+    },
+    "Status": {
+      "Timestamp": "2026-06-01T11:57:04.500Z",
+      "State": "failed",
+      "Err": "task: non-zero exit (1)",
+      "ContainerStatus": {
+        "ExitCode": 1
+      }
+    },
+    "DesiredState": "shutdown"
+  },
+  {
+    "ID": "t4sk00000000000000000ok01",
+    "Version": {
+      "Index": 4700
+    },
+    "CreatedAt": "2026-05-20T08:00:00.000Z",
+    "UpdatedAt": "2026-05-20T08:00:09.000Z",
+    "Slot": 1,
+    "NodeID": "node1manager0000000000000a",
+    "ServiceID": "svc-shop-worker",
+    "Spec": {
+      "ContainerSpec": {
+        "Image": "ghcr.io/barlito/shop:1.5.0",
+        "Env": [
+          "AMQP_URL=amqp://guest:fake-amqp-password@mq:5672"
+        ],
+        "Labels": {
+          "fake.task.label": "fake-task-label-secret"
+        }
+      }
+    },
+    "Status": {
+      "Timestamp": "2026-05-20T08:00:08.000Z",
+      "State": "running",
+      "Message": "started",
+      "ContainerStatus": {
+        "ContainerID": "beef01",
+        "PID": 4242
+      }
+    },
+    "DesiredState": "running"
+  },
+  {
+    "ID": "t4sk0000000000000000rej01",
+    "Version": {
+      "Index": 4701
+    },
+    "CreatedAt": "2026-06-01T11:59:00.000Z",
+    "UpdatedAt": "2026-06-01T11:59:01.000Z",
+    "Slot": 2,
+    "NodeID": "node2worker00000000000000b",
+    "ServiceID": "svc-shop-worker",
+    "Spec": {
+      "ContainerSpec": {
+        "Image": "ghcr.io/barlito/shop:1.5.0",
+        "Labels": {
+          "fake.task.label": "fake-task-label-secret"
+        }
+      }
+    },
+    "Status": {
+      "Timestamp": "2026-06-01T11:59:01.000Z",
+      "State": "rejected",
+      "Err": "no suitable node (scheduling constraints not satisfied on 1 node); token=fake-err-secret"
+    },
+    "DesiredState": "shutdown"
+  }
+]

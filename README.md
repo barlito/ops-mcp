@@ -9,7 +9,7 @@ TypeScript, Node 24, Express 5, `@modelcontextprotocol/sdk` (stateless Streamabl
 | Tool | Description |
 |------|-------------|
 | `ops_list_servers` | Servers of the registry (slug, env, kind, tenant) and whether each is reachable |
-| `ops_overview` | Per-server health summary: nodes, degraded services, recent failed tasks (log, metric and alert sections plug in later) |
+| `ops_overview` | Per-server health summary: nodes, degraded services, recent failed tasks (swarm, log, metric and alert sections) |
 | `ops_list_stacks` | Swarm stacks with project, health, images and last update |
 | `ops_get_service` | One service, sanitized (no env, no secret values), with its last tasks |
 | `ops_list_tasks` | Tasks of a stack or service with error, exit code and timestamps, paginated |
@@ -18,8 +18,12 @@ TypeScript, Node 24, Express 5, `@modelcontextprotocol/sdk` (stateless Streamabl
 | `ops_logs_query` | Search logs by scope, substring, RE2 regex and level; redacted, cut to 400 chars, cursor pagination, window capped at 24h |
 | `ops_logs_context` | Lines around an instant for one service |
 | `ops_logs_query_raw` | Raw LogQL (log queries 24h, metric queries 7d, capped series and points) |
+| `ops_service_metrics` | CPU, memory vs limit, container starts, network and Traefik req/s, 5xx, p95 of one service (min/max/avg/last + sparkline) |
+| `ops_host_metrics` | Node CPU, load, RAM, disk per mountpoint with days until full, disk I/O |
+| `ops_metrics_query` | Raw PromQL range query (max 7d, 20 series x 60 points) |
+| `ops_alerts` | Active alerts from Prometheus and, if configured, Grafana Alerting |
 
-Metrics tools arrive in the next phase. Every tool shares one contract (`src/tools/contract.ts`):
+Every tool shares one contract (`src/tools/contract.ts`):
 
 - Scope parameters: `server`, `stack` (label `service_namespace`), `service` (full Swarm name such as `carapp_php`, label `service_name`), `since` (`15m`, `1h`, `24h`, `7d` or RFC 3339, default `1h`), `until` (RFC 3339, default now).
 - One result envelope: `{ summary, items, truncated, next_cursor?, window, scope }`, as structured content plus one compact text block.
@@ -53,6 +57,13 @@ stack_projects: {obs: observability-stack}   # exceptions to the fr.barlito.repo
 `config/registry.yaml` (prod) and `config/registry.local.yaml` (local) are committed (private repo) and mounted as a Swarm config named `ops_registry_<sha1>`.
 
 Docker API access goes through `dockerproxy-ops` (docker-socket-proxy: read-only endpoints for services, tasks, nodes, info, version; no containers) on an internal overlay network.
+
+## Metrics configuration
+
+- `PROM_URL` (default `http://prometheus:9090`): Prometheus, reached over the external `obs_query` network.
+- `GRAFANA_URL` (optional): Grafana Alerting alerts in `ops_alerts`, read with a service account token (Viewer) from the Docker secret file `/run/secrets/grafana_token`. Local: put the token in `data/grafana-token` before `make deploy`; prod: `GRAFANA_TOKEN` secret and `GRAFANA_URL` variable of the Deploy workflow. Without a token the secret holds `unset` and Grafana is ignored; an unreadable token file logs a warning and `ops_alerts` reports Grafana as unavailable. Without `GRAFANA_URL`, `ops_alerts` returns Prometheus alerts only and says so.
+- Traefik series are matched on the `service` label equal to the Swarm service name, its stack prefix or the auto-generated name (`carapp_php` matches `carapp_php@...`, `carapp@...` and `carapp-php@...`): Traefik names services after the `traefik.http.services.<name>` label, not after the Swarm service.
+- `make test.integration-metrics` backfills deterministic data into a throwaway Prometheus (compose project `ops-mcp-it-metrics`) and runs the tools against it.
 
 ## Local development
 

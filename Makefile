@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test test.integration typecheck build deploy deploy.prod db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
+.PHONY: help install test test.integration test.integration-metrics typecheck build deploy deploy.prod db.backup db.restore docker.service.update deploy.assert_image smoke.test deploy.prune prune-local-images undeploy restart logs token-create token-list token-revoke connector-key-create connector-key-show connector-key-list connector-key-revoke backup-db prune-audit
 
 stack_name=ops-mcp
 service=ops-mcp
@@ -81,7 +81,9 @@ deploy: ## Build the image and deploy the stack locally (Swarm)
 	@# The proxy secret also stays in the Traefik label; the app reads both from Docker secrets (files).
 	proxy_name=$$(scripts/ensure-secret.sh ops_admin_proxy_secret < data/admin-proxy-secret); \
 	web_name=$$(scripts/ensure-secret.sh ops_admin_web_secret < data/admin-web-secret); \
-	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
+	grafana_token=$$(cat data/grafana-token 2>/dev/null || true); \
+	grafana_name=$$(printf %s "$${grafana_token:-unset}" | scripts/ensure-secret.sh ops_grafana_token); \
+	export ADMIN_PROXY_SECRET=$$(cat data/admin-proxy-secret) ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name CONFIG_VERSION=$$(sha1sum config/registry.local.yaml | cut -c1-10); \
 	  docker compose build && $(call stack_deploy,,)
 	$(MAKE) prune-local-images
 
@@ -109,7 +111,8 @@ deploy.prod: ## Deploy the whole prod stack (TAG=<release tag>): backup, stack d
 	@$(call mark_service,$(mark_file))
 	proxy_name=$$(printf %s "$$ADMIN_PROXY_SECRET" | scripts/ensure-secret.sh ops_admin_proxy_secret); \
 	web_name=$$(printf %s "$$ADMIN_WEB_SECRET" | scripts/ensure-secret.sh ops_admin_web_secret); \
-	export ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name CONFIG_VERSION=$$(sha1sum config/registry.yaml | cut -c1-10); \
+	grafana_name=$$(printf %s "$${GRAFANA_TOKEN:-unset}" | scripts/ensure-secret.sh ops_grafana_token); \
+	export ADMIN_PROXY_SECRET_NAME=$$proxy_name ADMIN_WEB_SECRET_NAME=$$web_name GRAFANA_TOKEN_SECRET_NAME=$$grafana_name CONFIG_VERSION=$$(sha1sum config/registry.yaml | cut -c1-10); \
 	  $(call stack_deploy,-f docker-compose-prod.yml,--with-registry-auth --detach=false)
 	$(MAKE) deploy.assert_image
 	$(MAKE) smoke.test
@@ -206,3 +209,16 @@ backup-db: ## Consistent SQLite backup to /data/backups/ops-<UTC timestamp>.db
 prune-audit: ## Delete audit rows older than N days (make prune-audit days=90)
 	@test -n "$(days)" || { echo "days is required (make prune-audit days=90)" >&2; exit 1; }
 	@$(call exec_in_service,node dist/platform/cli/maintenance.js prune-audit --days "$(days)")
+
+# Prometheus is fed by backfilling deterministic OpenMetrics with promtool (exact data, no remote-write
+# client, no wait for scrapes), then started with the remote-write receiver on like the real one.
+IT_METRICS=docker compose -f integration/metrics/compose.yaml
+test.integration-metrics: node_modules ## Run the metrics tools against a real, throwaway Prometheus (compose project ops-mcp-it-metrics)
+	@rm -rf integration/metrics/work; mkdir -p integration/metrics/work
+	$(NODE) npx tsx src/integration/genMetrics.ts integration/metrics/work/data.om
+	@status=0; \
+	{ $(IT_METRICS) --profile backfill run --rm backfill \
+	  && $(IT_METRICS) up -d --wait prometheus \
+	  && docker run --rm -u $(HOST_UID):$(HOST_GID) -e HOME=/tmp/home -e PROM_URL=http://prometheus:9090 --network ops-mcp-it-metrics_default \
+	       -v $(CURDIR):$(CURDIR) -w $(CURDIR) $(NODE_IMAGE) npx tsx --test src/integration/promMetrics.itprom.ts; } || status=$$?; \
+	$(IT_METRICS) down -v --remove-orphans; rm -rf integration/metrics/work; exit $$status

@@ -6,7 +6,7 @@ import { LokiClient } from "./logs/LokiClient";
 import { createApp } from "./server";
 import { AuthFailureLimiter } from "./platform/http";
 import { RateLimiter } from "./platform/rateLimit";
-import { fakeCluster } from "./test-support/mcp";
+import { fakeCluster, fakeProm } from "./test-support/mcp";
 import { TOOLS } from "./tools";
 import { testRegistry, testStores, type TestStores } from "./test-support/fixtures";
 import { createServer } from "node:http";
@@ -23,7 +23,7 @@ before(async () => {
   key = stores.connectorKeys.create("claude-ai").key;
   const app = createApp({
     ...stores,
-    tools: { registry: testRegistry(), audit: stores.audit, loki: new LokiClient({ url: "http://127.0.0.1:1" }), cluster: fakeCluster((slug) => ({ info: async () => ({ reachable: slug === "ovh-prod-1", swarm: true, dockerVersion: "29.0.0", error: slug === "ovh-prod-1" ? undefined : "down" }) })) },
+    tools: { registry: testRegistry(), audit: stores.audit, loki: new LokiClient({ url: "http://127.0.0.1:1" }), prom: fakeProm(), cluster: fakeCluster((slug) => ({ info: async () => ({ reachable: slug === "ovh-prod-1", swarm: true, dockerVersion: "29.0.0", error: slug === "ovh-prod-1" ? undefined : "down" }) })) },
     authLimiter: new AuthFailureLimiter(1000),
     callLimiter: new RateLimiter(1000, 60_000),
   });
@@ -37,7 +37,7 @@ after(() => new Promise<void>((r) => server.close(() => r())));
 const HEADERS = { "content-type": "application/json", accept: "application/json, text/event-stream" };
 const rpc = (method: string, params: unknown = {}, id: number | undefined = 1) => ({ jsonrpc: "2.0", method, params, ...(id === undefined ? {} : { id }) });
 const post = (body: unknown, headers: Record<string, string> = {}) => fetch(`${base}/mcp`, { method: "POST", headers: { ...HEADERS, ...headers }, body: JSON.stringify(body) });
-const toolsOf = (s: TestStores) => ({ registry: testRegistry(), audit: s.audit, loki: new LokiClient({ url: "http://127.0.0.1:1" }), cluster: fakeCluster(() => ({ info: async () => ({ reachable: true, swarm: true }) })) });
+const toolsOf = (s: TestStores) => ({ registry: testRegistry(), audit: s.audit, loki: new LokiClient({ url: "http://127.0.0.1:1" }), prom: fakeProm(), cluster: fakeCluster(() => ({ info: async () => ({ reachable: true, swarm: true }) })) });
 
 async function withApp(opts: Parameters<typeof createApp>[0], fn: (mcpUrl: string) => Promise<void>): Promise<void> {
   const srv = createServer(createApp(opts));

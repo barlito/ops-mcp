@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ClusterSource, ClusterSourceProvider } from "../cluster/ClusterSource";
+import type { PromApi } from "../metrics/PromClient";
 import { LokiClient } from "../logs/LokiClient";
 import type { AuthContext } from "../platform/auth/context";
 import { registerTools, type ToolDefinition, type ToolDeps } from "../tools/contract";
@@ -28,6 +29,14 @@ export const stubSource = (over: Partial<ClusterSource> = {}): ClusterSource => 
 
 export const fakeCluster = (impl: (slug: string) => Partial<ClusterSource>): ClusterSourceProvider => (server) => stubSource(impl(server.slug));
 
+export const fakeProm = (over: Partial<PromApi> = {}): PromApi => ({
+  query: async () => [],
+  queryRange: async () => [],
+  alerts: async () => [],
+  hasRules: async () => true,
+  ...over,
+});
+
 export async function connect(tools: ToolDefinition[], over: Partial<ToolDeps> = {}) {
   const stores: TestStores = testStores();
   const deps: ToolDeps = {
@@ -35,6 +44,7 @@ export async function connect(tools: ToolDefinition[], over: Partial<ToolDeps> =
     audit: stores.audit,
     cluster: fakeCluster(() => ({ info: async () => ({ reachable: true, swarm: true, dockerVersion: "29.0.0" }) })),
     loki: new LokiClient({ url: "http://127.0.0.1:1" }),
+    prom: fakeProm(),
     now: () => new Date("2026-06-01T12:00:00.000Z"),
     ...over,
   };

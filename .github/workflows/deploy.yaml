@@ -78,6 +78,9 @@ jobs:
           # Substituted in docker-compose-prod.yml at stack deploy
           ADMIN_PROXY_SECRET: ${{ secrets.ADMIN_PROXY_SECRET }}
           ADMIN_WEB_SECRET: ${{ secrets.ADMIN_WEB_SECRET }}
+          # Optional Grafana Alerting source for ops_alerts: both empty -> Prometheus alerts only
+          GRAFANA_URL: ${{ vars.GRAFANA_URL }}
+          GRAFANA_TOKEN: ${{ secrets.GRAFANA_TOKEN }}
           # Optional; empty -> authelia_session (compose default)
           AUTHELIA_SESSION_COOKIE: ${{ vars.AUTHELIA_SESSION_COOKIE }}
         # No `stack rm`: deploy.prod rolls the existing stack (creates it on a first deploy)

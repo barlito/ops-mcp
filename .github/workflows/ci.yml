@@ -50,6 +50,16 @@ jobs:
       - run: make test.integration
       - run: npm run build
 
+  integration-metrics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - run: make test.integration-metrics
+
   docker:
     # Skipped only when release.yaml calls this workflow with docker: false (its own build is the check)
     if: ${{ github.event_name != 'release' || inputs.docker }}
@@ -81,6 +91,7 @@ jobs:
           CONFIG_VERSION: ci
           ADMIN_PROXY_SECRET_NAME: ci
           ADMIN_WEB_SECRET_NAME: ci
+          GRAFANA_TOKEN_SECRET_NAME: ci
           # Dummy values: only checks that the files interpolate.
           ADMIN_PROXY_SECRET: ci-dummy-admin-proxy-secret-0123456789abcdef
           ADMIN_WEB_SECRET: ci-dummy-admin-web-secret-0123456789abcdef
